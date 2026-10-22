@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import io
+import keyword
 import tokenize
 
 from . import ir
@@ -40,6 +41,10 @@ _UNARY = {ast.USub: "USub", ast.UAdd: "UAdd", ast.Not: "Not"}
 # Встроенные конструкторы (прелюдия как у Gleam): Result = Ok(a) | Error(e).
 BUILTIN_CLASSES = {"Ok": ("value",), "Error": ("value",)}
 
+# Маркер `let`-деструктуризации: `Ctor(args) = expr` переписывается в
+# `__squeal_let__(Ctor(args), expr)`, потому что CPython не принимает call-цель.
+LET_MARKER = "__squeal_let__"
+
 
 def snake_case(name: str) -> str:
     """Точный порт ``to_snake_case`` у Gleam: ``CustomType`` → ``custom_type``."""
@@ -60,6 +65,7 @@ def snake_case(name: str) -> str:
 
 
 def parse_module(source: str, path: str, name: str) -> ir.Module:
+    source = rewrite_lets(source)
     toks = _token_chars(source)
     tree = ast.parse(source)
     classes = _collect_classes(tree)
@@ -141,6 +147,140 @@ def _base_name(node: ast.ClassDef) -> str:
     return node.bases[0].id
 
 
+def rewrite_lets(source: str) -> str:
+    """`Ctor(args) = expr` → `__squeal_let__(Ctor(args), expr)`.
+
+    CPython не принимает call-цель присваивания, поэтому `let`-образцы с
+    конструктором переписываются в вызов-маркер. Число строк сохраняется.
+    """
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError):
+        return source
+
+    lines = source.splitlines(keepends=True)
+    starts, acc = [], 0
+    for line in lines:
+        starts.append(acc)
+        acc += len(line)
+
+    def offset(pos):
+        row, col = pos
+        return (starts[row - 1] if 0 < row <= len(starts) else len(source)) + col
+
+    def ranges():
+        start = 0
+        for i, t in enumerate(tokens):
+            if t.type == tokenize.NEWLINE:
+                yield start, i
+                start = i + 1
+        yield start, len(tokens)
+
+    edits = []
+    for beg, end in ranges():
+        stmt = [t for t in tokens[beg:end] if t.type not in (
+            tokenize.NL, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT)]
+        if len(stmt) < 5 or stmt[0].type != tokenize.NAME:
+            continue
+        if keyword.iskeyword(stmt[0].string) or stmt[1].string != "(":
+            continue
+        depth, close = 0, None
+        for j in range(1, len(stmt)):
+            if stmt[j].string in "([{":
+                depth += 1
+            elif stmt[j].string in ")]}":
+                depth -= 1
+                if depth == 0:
+                    close = j
+                    break
+        if close is None or close + 1 >= len(stmt) or stmt[close + 1].string != "=":
+            continue
+        start_off = offset(stmt[0].start)
+        end_off = offset(stmt[-1].end)
+        eq_off = offset(stmt[close + 1].start)
+        lhs = source[start_off:eq_off].rstrip()
+        rhs = source[eq_off + 1:end_off].strip()
+        edits.append((start_off, end_off, f"{LET_MARKER}({lhs}, {rhs})"))
+
+    for start_off, end_off, replacement in reversed(edits):
+        source = source[:start_off] + replacement + source[end_off:]
+    return source
+
+
+def _as_let(node: ast.AST, toks: dict, classes: dict):
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == LET_MARKER
+        and len(node.args) == 2
+        and not node.keywords
+    ):
+        return None
+    target = _expr_to_pattern(node.args[0], toks, classes)
+    _check_pattern_names(target)
+    return ir.Assign(
+        target=target,
+        value=_expr(node.args[1], toks, classes),
+        line=node.lineno,
+    )
+
+
+def _check_pattern_names(pat, seen=None) -> set:
+    """Повтор имени в одном образце — ошибка (иначе Erlang молча сравнил бы разные переменные)."""
+    if seen is None:
+        seen = set()
+    if isinstance(pat, (ir.PName, ir.PStar)):
+        if pat.name in seen:
+            raise SquealError(f"{pat.line}: повторное имя {pat.name!r} в образце")
+        seen.add(pat.name)
+    elif isinstance(pat, (ir.PList, ir.PTuple)):
+        for item in pat.items:
+            _check_pattern_names(item, seen)
+    elif isinstance(pat, ir.PMap):
+        for _, sub in pat.items:
+            _check_pattern_names(sub, seen)
+    return seen
+
+
+def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
+    if isinstance(node, ast.Name):
+        return ir.Wildcard(node.lineno) if node.id == "_" else ir.PName(node.id, node.lineno)
+    if isinstance(node, ast.Starred):
+        if not isinstance(node.value, ast.Name):
+            raise SquealError(f"{node.lineno}: звезда только для имени")
+        return ir.PStar(node.value.id, node.lineno)
+    if isinstance(node, ast.Tuple):
+        return ir.PTuple(
+            tuple(_expr_to_pattern(e, toks, classes) for e in node.elts), node.lineno
+        )
+    if isinstance(node, ast.List):
+        return ir.PList(
+            tuple(_expr_to_pattern(e, toks, classes) for e in node.elts), node.lineno
+        )
+    if isinstance(node, ast.Constant):
+        return _expr(node, toks, classes)
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name) or node.func.id not in classes:
+            raise SquealError(
+                f"{node.lineno}: let-образец с вызовом — только конструктор класса squeal"
+            )
+        if node.keywords:
+            raise SquealError(f"{node.lineno}: именованные поля в образце не поддержаны")
+        fields = classes[node.func.id]
+        if len(node.args) != len(fields):
+            raise SquealError(
+                f"{node.lineno}: конструктор {node.func.id} ожидает {len(fields)} аргументов, "
+                f"получено {len(node.args)}"
+            )
+        tag = snake_case(node.func.id)
+        return ir.PTuple(
+            (ir.AtomLit(tag, node.lineno),)
+            + tuple(_expr_to_pattern(a, toks, classes) for a in node.args),
+            node.lineno,
+        )
+    raise SquealError(f"{node.lineno}: let-образец не поддержан: {type(node).__name__}")
+
+
 def _token_chars(source: str) -> dict:
     """(строка, колонка) → символ: кавычка строки ('/\") или скобка ([/(/{)."""
     chars = {}
@@ -215,6 +355,9 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
             f"{node.lineno}: мутирующее присваивание {type(node.op).__name__} не поддержано"
         )
     if isinstance(node, ast.Expr):
+        let = _as_let(node.value, toks, classes)
+        if let is not None:
+            return let
         return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)
     if isinstance(node, ast.Return):
         return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)

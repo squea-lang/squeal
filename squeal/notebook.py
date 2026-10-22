@@ -13,11 +13,16 @@ import sys
 
 
 def load_ipython_extension(ipython) -> None:
+    from . import frontend
     from .errors import SquealError
     from .repl import ErlangRepl
     from .session import Session
 
     state = {"session": Session(), "repl": None, "raw_cell": None}
+
+    def let_cleanup(lines):
+        """Переписывает `Ctor(args) = expr` до Python-парсера (иначе SyntaxError)."""
+        return frontend.rewrite_lets("".join(lines)).splitlines(keepends=True)
 
     class _NoopTransformer(ast.NodeTransformer):
         """Заменяет тело ячейки на pass — Python ничего не выполняет."""
@@ -57,6 +62,7 @@ def load_ipython_extension(ipython) -> None:
     ipython.events.register("pre_run_cell", pre_run_cell)
     ipython.events.register("post_run_cell", post_run_cell)
     ipython.ast_transformers.append(_NoopTransformer())
+    ipython.input_transformers_cleanup.append(let_cleanup)
 
 
 def unload_ipython_extension(ipython) -> None:

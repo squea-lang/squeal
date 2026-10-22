@@ -659,3 +659,37 @@ def test_builtin_ok_arity_error():
     from squeal.errors import SquealError
     with pytest.raises(SquealError):
         compile_source("def f():\n    Ok(1, 2)\n", "src/m.ee", "m")
+
+
+def test_rewrite_lets():
+    from squeal.frontend import rewrite_lets
+    assert rewrite_lets("Ok(v) = f(1)\n") == "__squeal_let__(Ok(v), f(1))\n"
+    assert rewrite_lets("x = 1\n") == "x = 1\n"
+    assert rewrite_lets("a, b = (1, 2)\n") == "a, b = (1, 2)\n"
+    assert rewrite_lets("f(x)\n") == "f(x)\n"
+
+
+def test_let_constructor_pattern():
+    body = _clause_body("def f(v):\n    Ok(x) = v\n    x\n")
+    assert body[0][0] == Atom("match")
+    assert body[0][2] == (
+        Atom("tuple"), 2,
+        [(Atom("atom"), 2, Atom("ok")), (Atom("var"), 2, Atom("X"))],
+    )
+    assert body[1] == (Atom("var"), 3, Atom("X"))
+
+
+def test_let_constructor_pattern_errors():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError):
+        compile_source("def f(v):\n    f(x) = v\n", "src/m.ee", "m")      # не класс
+    with pytest.raises(SquealError):
+        compile_source("def f(v):\n    Ok(x, y) = v\n", "src/m.ee", "m")   # арность
+
+
+def test_let_duplicate_name_errors():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError):
+        compile_source("def f(v):\n    Ok(x, x) = v\n", "src/m.ee", "m")

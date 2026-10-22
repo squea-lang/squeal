@@ -168,3 +168,34 @@ def test_hook_survives_python_syntax_error():
     finally:
         nb.unload_ipython_extension(shell)
         InteractiveShell.clear_instance()
+
+
+def test_repl_let_constructor_pattern():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("def fun(x):\n    'ok', x\n\nOk(val) = fun(3)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "{ok,3}")
+        forms, _ = compile_cell("val\n", s)
+        assert repl.eval_forms(forms) == ("ok", "3")
+    finally:
+        repl.close()
+
+
+def test_hook_accepts_let_form_without_syntax_error():
+    from IPython.core.interactiveshell import InteractiveShell
+    from IPython.utils.capture import capture_output
+    import squeal.notebook as nb
+
+    shell = InteractiveShell.instance()
+    nb.load_ipython_extension(shell)
+    try:
+        with capture_output() as c1:
+            shell.run_cell("def fun(x):\n    'ok', x\n\nOk(val) = fun(3)")
+        with capture_output() as c2:
+            shell.run_cell("val")
+        assert c2.stdout.strip() == "3"
+        assert "SyntaxError" not in c1.stdout
+    finally:
+        nb.unload_ipython_extension(shell)
+        InteractiveShell.clear_instance()
