@@ -38,6 +38,8 @@ def compact(source: str) -> str:
 
 
 def load_ipython_extension(ipython) -> None:
+    if getattr(ipython, "_squeal_notebook", None) is not None:
+        return  # уже загружено
     from . import frontend
     from .errors import SquealError
     from .repl import ErlangRepl
@@ -87,12 +89,38 @@ def load_ipython_extension(ipython) -> None:
         except SquealError as exc:
             sys.stderr.write(f"squeal: {exc}\n")
 
+    transformer = _NoopTransformer()
     ipython.events.register("pre_run_cell", pre_run_cell)
     ipython.events.register("post_run_cell", post_run_cell)
-    ipython.ast_transformers.append(_NoopTransformer())
+    ipython.ast_transformers.append(transformer)
     ipython.input_transformers_cleanup.append(let_cleanup)
+    ipython._squeal_notebook = {
+        "state": state,
+        "pre": pre_run_cell,
+        "post": post_run_cell,
+        "transformer": transformer,
+        "cleanup": let_cleanup,
+    }
 
 
 def unload_ipython_extension(ipython) -> None:
-    # Упрощённо: перезапуск ядра сбрасывает всё состояние.
-    pass
+    loaded = getattr(ipython, "_squeal_notebook", None)
+    if loaded is None:
+        return
+    for name, callback in (("pre_run_cell", loaded["pre"]), ("post_run_cell", loaded["post"])):
+        try:
+            ipython.events.callbacks[name].remove(callback)
+        except (KeyError, ValueError):
+            pass
+    for seq, item in (
+        (ipython.ast_transformers, loaded["transformer"]),
+        (ipython.input_transformers_cleanup, loaded["cleanup"]),
+    ):
+        try:
+            seq.remove(item)
+        except ValueError:
+            pass
+    repl = loaded["state"].get("repl")
+    if repl is not None:
+        repl.close()
+    ipython._squeal_notebook = None

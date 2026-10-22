@@ -66,7 +66,7 @@ def snake_case(name: str) -> str:
 
 def parse_module(source: str, path: str, name: str) -> ir.Module:
     source = rewrite_pattern_assignments(source)
-    toks = _token_chars(source)
+    toks = _source_chars(source)
     tree = ast.parse(source)
     classes = _collect_classes(tree)
     imports = _collect_imports(tree)
@@ -107,8 +107,11 @@ def _collect_imports(tree: ast.Module) -> dict:
 
 def _collect_classes(tree: ast.Module) -> dict:
     classes = dict(BUILTIN_CLASSES)
+    tags = {snake_case(name): name for name in BUILTIN_CLASSES}
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
+            if node.decorator_list:
+                raise SquealError(f"{node.lineno}: декораторы не поддержаны")
             fields = _class_fields(node)
             base = _base_name(node)
             if base != "StartingWithAtom":
@@ -118,6 +121,12 @@ def _collect_classes(tree: ast.Module) -> dict:
                 )
             if node.name in classes:
                 raise SquealError(f"{node.lineno}: повторное определение класса {node.name}")
+            tag = snake_case(node.name)
+            if tag in tags and tags[tag] != node.name:
+                raise SquealError(
+                    f"{node.lineno}: классы {node.name} и {tags[tag]} дают один тег {tag!r}"
+                )
+            tags[tag] = node.name
             classes[node.name] = fields
     return classes
 
@@ -281,23 +290,30 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
     raise SquealError(f"{node.lineno}: образец присваивания не поддержан: {type(node).__name__}")
 
 
-def _token_chars(source: str) -> dict:
-    """(строка, колонка) → символ: кавычка строки ('/\") или скобка ([/(/{)."""
-    chars = {}
-    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
-        if tok.type == tokenize.STRING:
-            s = tok.string
-            i = 0
-            while i < len(s) and s[i] in "rRbBuUfF":
-                i += 1
-            if i < len(s):
-                chars[(tok.start[0], tok.start[1])] = s[i]
-        elif tok.type == tokenize.OP and tok.string in "([{":
-            chars[(tok.start[0], tok.start[1])] = tok.string
-    return chars
+class _SourceChars:
+    """Символ исходника в позиции узла: кавычка строки (`'`/`"`) или скобка (`[`/`(`/`{`).
+
+    Позиция AST (`col_offset`) — байтовое смещение UTF-8, поэтому индекс берём по байтам.
+    """
+
+    def __init__(self, source: str):
+        self.lines = source.splitlines(keepends=True)
+
+    def get(self, pos, default=None):
+        row, col = pos
+        if not 0 < row <= len(self.lines):
+            return default
+        line = self.lines[row - 1].encode("utf-8")
+        return chr(line[col]) if 0 <= col < len(line) else default
+
+
+def _source_chars(source: str) -> _SourceChars:
+    return _SourceChars(source)
 
 
 def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
+    if node.decorator_list:
+        raise SquealError(f"{node.lineno}: декораторы не поддержаны")
     a = node.args
     if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
         raise SquealError(
@@ -360,7 +376,8 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
             return assign
         return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)
     if isinstance(node, ast.Return):
-        return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)
+        value = ir.Nil(node.lineno) if node.value is None else _expr(node.value, toks, classes)
+        return ir.Expr(value=value, line=node.lineno)
     if isinstance(node, ast.Pass):
         return None
     if isinstance(node, ast.If):

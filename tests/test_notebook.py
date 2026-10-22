@@ -278,3 +278,54 @@ def test_assignment_shadows_definition():
         assert repl.eval_forms(forms) == ("ok", "101")
     finally:
         repl.close()
+
+
+def test_functions_are_values_in_shell():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("def f(x):\n    x + 1\n", s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell("g = f\n", s)
+        assert repl.eval_forms(forms)[0] == "ok"
+        forms, _ = compile_cell("g(41)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "42")
+    finally:
+        repl.close()
+
+
+def test_shell_arity_mismatch_is_clear():
+    import pytest
+    from squeal.errors import SquealError
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("def f(x):\n    x\n", s)
+        repl.eval_forms(forms)
+        with pytest.raises(SquealError) as e:
+            compile_cell("f(1, 2)\n", s)
+        assert "не определена" in str(e.value)
+    finally:
+        repl.close()
+
+
+def test_extension_load_is_idempotent_and_unloads():
+    from IPython.core.interactiveshell import InteractiveShell
+    import squeal.notebook as nb
+
+    shell = InteractiveShell.instance()
+    try:
+        def counts():
+            return (
+                len(shell.events.callbacks.get("post_run_cell", [])),
+                len(shell.ast_transformers),
+                len(shell.input_transformers_cleanup),
+            )
+        nb.load_ipython_extension(shell)
+        once = counts()
+        nb.load_ipython_extension(shell)
+        assert counts() == once          # повторная загрузка ничего не дублирует
+        nb.unload_ipython_extension(shell)
+        assert counts() == (once[0] - 1, once[1] - 1, once[2] - 1)
+    finally:
+        InteractiveShell.clear_instance()

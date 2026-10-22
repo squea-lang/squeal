@@ -42,6 +42,7 @@ def build(root: str | pathlib.Path) -> pathlib.Path:
     ebin.mkdir(parents=True, exist_ok=True)
 
     modules = []
+    jobs = []
     for path in sorted(src.glob("**/*.ee")):
         rel = path.relative_to(src)
         name = module_name(rel)
@@ -51,12 +52,16 @@ def build(root: str | pathlib.Path) -> pathlib.Path:
 
         abstr = abstr_dir / f"{name}.abstr"
         abstr.write_text("".join(term_to_erlang(f) + ".\n" for f in forms))
+        jobs.append((str(abstr), str(ebin / name), str(source_path)))
 
-        base = ebin / name
-        subprocess.run(
-            ["escript", str(ESCRIPT), str(abstr), str(base), name, str(source_path)],
-            check=True,
+    if jobs:
+        jobs_file = abstr_dir / "_jobs.term"
+        jobs_file.write_text("".join(term_to_erlang(j) + ".\n" for j in jobs))
+        run = subprocess.run(
+            ["escript", str(ESCRIPT), str(jobs_file)], capture_output=True, text=True
         )
+        if run.returncode != 0:
+            raise SquealError(run.stderr.strip() or "compile:forms failed")
 
     app_spec = (
         Atom("application"),

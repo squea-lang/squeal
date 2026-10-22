@@ -23,18 +23,16 @@ def _body(source: str, name: str = "m"):
     return fn[4][0][4][0]
 
 
-def test_mod_form_is_block():
+def test_mod_uses_helper():
     body = _body("def m(a, b):\n    a % b\n")
-    assert body[0] == Atom("block")          # begin … end
-    assert body[2][2][0] == Atom("op")        # (A rem B + B) rem B
-    assert body[2][2][2] == Atom("rem")
+    assert body[0] == Atom("call")
+    assert body[2] == (Atom("atom"), 2, Atom("squeal_mod"))
 
 
-def test_floordiv_form_is_block():
+def test_floordiv_uses_helper():
     body = _body("def m(a, b):\n    a // b\n")
-    assert body[0] == Atom("block")
-    assert body[2][2][0] == Atom("op")
-    assert body[2][2][2] == Atom("div")       # (A - Mod) div B
+    assert body[0] == Atom("call")
+    assert body[2] == (Atom("atom"), 2, Atom("squeal_floordiv"))
 
 
 def test_pow_emits_helper():
@@ -605,9 +603,12 @@ def test_duplicate_class_error():
             "src/m.ee", "m")
 
 
-def test_temp_names_no_collision():
+def test_no_temp_variables():
+    # % и // больше не строят inline begin…end со временными `_squeal@N`
     body = _expr_form("def m(_value, y):\n    _value % y\n")
-    assert body[2][0][2] == (Atom("var"), 2, Atom("_squeal@0"))
+    assert body[0] == Atom("call")
+    assert body[2] == (Atom("atom"), 2, Atom("squeal_mod"))
+    assert body[3][0] == (Atom("var"), 2, Atom("_value"))
 
 
 def test_build_default_dir_and_app_file():
@@ -758,3 +759,47 @@ def test_tail_case_semantics_in_erl():
          'io:format("~p ~p ~p~n", [t:pick(true), t:pick(false), t:num(1)]), halt().'],
         capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "yes no 10"
+
+
+def test_float_mod_and_floordiv():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "f.ee").write_text(
+        "def m(a, b):\n    a % b\ndef d(a, b):\n    a // b\n")
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p ~p ~p~n", [f:m(7.5, 2), f:m(-7.5, 2), f:d(7.5, 2), f:d(-7.5, 2)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "1.5 0.5 3.0 -4.0"
+
+
+def test_source_chars_quotes_with_unicode():
+    import ast
+    from squeal.frontend import _source_chars
+
+    src = 'привет = "b"\nz = \'a\'\n'
+    chars = _source_chars(src)
+    got = {}
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            got[node.value] = chars.get((node.lineno, node.col_offset))
+    assert got == {"b": '"', "a": "'"}
+
+
+def test_params_differing_only_by_case():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "nm.ee").write_text("def f(N, n):\n    (N, n)\n")
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p~n", [nm:f(1, 2)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "{1,2}"

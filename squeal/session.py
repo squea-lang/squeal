@@ -26,7 +26,7 @@ class Session:
         ``подавлять_вывод`` — True, когда клетка только определяет (def/class/import).
         """
         source = frontend.rewrite_pattern_assignments(source)
-        toks = frontend._token_chars(source)
+        toks = frontend._source_chars(source)
         tree = ast.parse(source)
 
         gen = self._gen
@@ -68,6 +68,12 @@ class Session:
         return forms, last_is_definition
 
     def _def(self, node: ast.FunctionDef, toks: dict) -> ir.Def:
+        if node.decorator_list:
+            raise SquealError(f"{node.lineno}: декораторы не поддержаны")
+        if node.name in backend.RESERVED_NAMES:
+            raise SquealError(
+                f"{node.lineno}: имя {node.name!r} зарезервировано компилятором"
+            )
         a = node.args
         if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
             raise SquealError(f"{node.lineno}: параметры со значениями/vararg не поддержаны")
@@ -78,6 +84,8 @@ class Session:
         return ir.Def(name=node.name, params=params, statements=body, line=node.lineno)
 
     def _class(self, node: ast.ClassDef, seen: set[str]) -> None:
+        if node.decorator_list:
+            raise SquealError(f"{node.lineno}: декораторы не поддержаны")
         fields = frontend._class_fields(node)
         base = frontend._base_name(node)
         if base != "StartingWithAtom":
@@ -88,6 +96,12 @@ class Session:
             raise SquealError(
                 f"{node.lineno}: повторное определение класса {node.name} в одной ячейке"
             )
+        tag = frontend.snake_case(node.name)
+        for other in self.classes:
+            if other != node.name and frontend.snake_case(other) == tag:
+                raise SquealError(
+                    f"{node.lineno}: классы {node.name} и {other} дают один тег {tag!r}"
+                )
         seen.add(node.name)
         # переопределение между ячейками разрешено: повторный запуск клетки — не ошибка
         self.classes[node.name] = fields

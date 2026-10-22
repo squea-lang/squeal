@@ -9,7 +9,9 @@ main(_) ->
     B0 = erl_eval:new_bindings(),
     B1 = erl_eval:add_binding('_squeal_pow', fun squeal_pow/2, B0),
     B2 = erl_eval:add_binding('squeal_iter', fun squeal_iter/1, B1),
-    loop(B2).
+    B3 = erl_eval:add_binding('squeal_mod', fun squeal_mod/2, B2),
+    B4 = erl_eval:add_binding('squeal_floordiv', fun squeal_floordiv/2, B3),
+    loop(B4).
 
 loop(Bindings) ->
     case io:get_line("") of
@@ -63,3 +65,10 @@ squeal_pow_loop(A, N, Acc) -> squeal_pow_loop(A, N - 1, Acc * A).
 %% map -> ключи, список -> как есть (иначе bad_generator).
 squeal_iter(M) when is_map(M) -> maps:keys(M);
 squeal_iter(L) -> L.
+
+%% % и // — питоновская семантика для int и float.
+squeal_mod(A, B) when is_integer(A), is_integer(B) -> (A rem B + B) rem B;
+squeal_mod(A, B) -> math:fmod(math:fmod(A, B) + B, B).
+
+squeal_floordiv(A, B) when is_integer(A), is_integer(B) -> (A - ((A rem B + B) rem B)) div B;
+squeal_floordiv(A, B) -> float(math:floor(A / B)).

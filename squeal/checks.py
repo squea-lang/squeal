@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from .backend import RESERVED_NAMES
 from .errors import SquealError
 from .ir import Module
 
 
 def check(module: Module) -> None:
     """Дубли определяются по паре (имя, арность): как в Erlang/Gleam,
-    `fib/1` и `fib/3` — разные функции."""
+    `fib/1` и `fib/3` — разные функции. Имена хелперов зарезервированы."""
     seen = set()
     for function in module.functions:
+        if function.name in RESERVED_NAMES:
+            raise SquealError(f"имя {function.name!r} зарезервировано компилятором")
         key = (function.name, len(function.params))
         if key in seen:
             raise SquealError(

@@ -11,6 +11,11 @@ from . import ir
 from .errors import SquealError
 from .term import Atom
 
+RESERVED_NAMES = frozenset({
+    "squeal_iter", "squeal_mod", "squeal_floordiv",
+    "_squeal_pow", "_squeal_pow_loop",
+})
+
 COMPILE_OPTS = [
     Atom("no_auto_import"),
     Atom("nowarn_ignored"),
@@ -85,12 +90,15 @@ class _Gen:
         self._temp = 0
         self._used_pow = False
         self._used_iter = False
+        self._used_mod = False
+        self._used_floordiv = False
         self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
         self._taken: dict[str, int] = {}
         self._defs: dict[tuple, Atom] = {}
         self._later_defs: set[tuple] = set()
+        self._module_defs: set[tuple] = set()
 
     def _helper_call(self, line, name, args) -> tuple:
         """Вызов хелпера: в модуле — локальная функция, в REPL — связанный fun."""
@@ -101,11 +109,15 @@ class _Gen:
     # --- имена переменных ---
 
     def _allocate(self, name: str) -> Atom:
-        """Новое Erlang-имя для привязки (счётчик общий у значений и определений)."""
-        count = self._taken.get(name, 0)
+        """Новое Erlang-имя для привязки.
+
+        Счётчик ведётся по базовому Erlang-имени: `N` и `n` маппятся в `N`, поэтому второе
+        получает `N@1` (иначе два разных питоновских имени столкнулись бы).
+        """
         base = variable_name(name)
+        count = self._taken.get(base, 0)
         new = base if count == 0 else Atom(f"{base}@{count}")
-        self._taken[name] = count + 1
+        self._taken[base] = count + 1
         return new
 
     def _drop_defs(self, name: str) -> None:
@@ -121,25 +133,20 @@ class _Gen:
         """Определение функции: имя различается по арности (как в Erlang/Gleam)."""
         new = self._allocate(name)
         self._defs[(name, arity)] = new
-        self._scope.pop(name, None)
+        self._scope[name] = new  # функция — тоже значение (последняя арность)
         return new
 
-    def _resolve(self, name: str) -> Atom:
+    def _resolve(self, name: str, line: int) -> Atom:
         erlang = self._scope.get(name)
         if erlang is None:
-            raise SquealError(f"имя {name!r} не определено")
+            raise SquealError(f"{line}: имя {name!r} не определено")
         return erlang
-
-    def new_temp(self) -> Atom:
-        """Неколлидирующее имя: ``_squeal@N`` (в Python-идентификаторе нет ``@``)."""
-        name = f"_squeal@{self._temp}"
-        self._temp += 1
-        return Atom(name)
 
     # --- модуль и функции ---
 
     def module_forms(self, module: ir.Module) -> list:
         self._imports = dict(module.imports)
+        self._module_defs = {(f.name, len(f.params)) for f in module.functions}
         forms = [
             (Atom("attribute"), 0, Atom("module"), Atom(module.name)),
             (Atom("attribute"), 0, Atom("compile"), list(COMPILE_OPTS)),
@@ -158,6 +165,10 @@ class _Gen:
             forms.extend(self.pow_helpers())
         if self._used_iter:
             forms.append(self.iter_helper())
+        if self._used_mod:
+            forms.append(self.mod_helper())
+        if self._used_floordiv:
+            forms.append(self.floordiv_helper())
         return forms
 
     def function_form(self, function: ir.Function) -> tuple:
@@ -204,6 +215,8 @@ class _Gen:
     def _tail_assign_target(self, bodies):
         names = []
         for stmts in bodies:
+            if not stmts:
+                return None
             name = self._tail_of(stmts[-1])
             if name is None:
                 return None
@@ -219,17 +232,19 @@ class _Gen:
             return (Atom("match"), node.line, _var(node.line, self._bind(target)), case)
         return self._case_value_only(node)
 
-    def _branch_tail(self, stmts):
+    def _branch_tail(self, stmts, line):
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
         saved_defs = dict(self._defs)
-        body = self._branch_tail_body(stmts)
+        body = self._branch_tail_body(stmts, line)
         self._scope = saved_scope
         self._taken = saved_taken
         self._defs = saved_defs
         return body
 
-    def _branch_tail_body(self, stmts):
+    def _branch_tail_body(self, stmts, line):
+        if not stmts:
+            raise SquealError(f"{line}: ветка без значения (пустой блок)")
         body = [self.stmt_form(s) for s in stmts[:-1]]
         last = stmts[-1]
         if isinstance(last, (ir.If, ir.Match)):
@@ -245,8 +260,8 @@ class _Gen:
     def _case_value_only(self, node) -> tuple:
         if isinstance(node, ir.If):
             cond = self.expr_form(node.condition)
-            then_body = self._branch_tail(node.then_body)
-            else_body = self._branch_tail(node.else_body)
+            then_body = self._branch_tail(node.then_body, node.line)
+            else_body = self._branch_tail(node.else_body, node.line)
             return (Atom("case"), node.line, cond, [
                 (Atom("clause"), node.line, [_atom(node.line, "true")], [], then_body),
                 (Atom("clause"), node.line, [_atom(node.line, "false")], [], else_body),
@@ -259,7 +274,7 @@ class _Gen:
             saved_defs = dict(self._defs)
             patterns = self._case_patterns(c.pattern)
             guard = [[self.expr_form(c.guard)]] if c.guard is not None else []
-            body = self._branch_tail_body(c.body)
+            body = self._branch_tail_body(c.body, c.line)
             self._scope = saved_scope
             self._taken = saved_taken
             self._defs = saved_defs
@@ -309,8 +324,8 @@ class _Gen:
     def _case_value(self, node):
         if isinstance(node, ir.If):
             cond = self.expr_form(node.condition)
-            t_target, t_body, t_result = self._branch(node.then_body)
-            e_target, e_body, e_result = self._branch(node.else_body)
+            t_target, t_body, t_result = self._branch(node.then_body, node.line)
+            e_target, e_body, e_result = self._branch(node.else_body, node.line)
             self._check_target(node.line, [t_target, e_target])
             case = (Atom("case"), node.line, cond, [
                 (Atom("clause"), node.line, [_atom(node.line, "true")], [], t_body + [t_result]),
@@ -327,7 +342,7 @@ class _Gen:
                 saved_defs = dict(self._defs)
                 patterns = self._case_patterns(c.pattern)  # связывает переменные образца
                 guard = [[self.expr_form(c.guard)]] if c.guard is not None else []
-                c_target, c_body, c_result = self._branch_body(c.body)
+                c_target, c_body, c_result = self._branch_body(c.body, c.line)
                 self._scope = saved_scope
                 self._taken = saved_taken
                 self._defs = saved_defs
@@ -338,17 +353,19 @@ class _Gen:
             return targets[0], (Atom("case"), node.line, subject, clauses)
         raise SquealError(f"не ветвление: {node!r}")
 
-    def _branch(self, stmts):
+    def _branch(self, stmts, line):
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
         saved_defs = dict(self._defs)
-        target, body, result = self._branch_body(stmts)
+        target, body, result = self._branch_body(stmts, line)
         self._scope = saved_scope
         self._taken = saved_taken
         self._defs = saved_defs
         return target, body, result
 
-    def _branch_body(self, stmts):
+    def _branch_body(self, stmts, line):
+        if not stmts:
+            raise SquealError(f"{line}: ветка без значения (пустой блок)")
         body = []
         for stmt in stmts[:-1]:
             body.append(self.stmt_form(stmt))
@@ -449,7 +466,7 @@ class _Gen:
         if isinstance(expr, ir.Nil):
             return _atom(expr.line, "nil")
         if isinstance(expr, ir.Var):
-            return _var(expr.line, self._resolve(expr.name))
+            return _var(expr.line, self._resolve(expr.name, expr.line))
         if isinstance(expr, ir.Tuple):
             return (
                 Atom("tuple"),
@@ -471,8 +488,15 @@ class _Gen:
             key = (expr.name, len(expr.args))
             if key in self._defs:
                 callee = _var(expr.line, self._defs[key])
+            elif any(k[0] == expr.name for k in self._defs):
+                have = ", ".join(
+                    f"{expr.name}/{a}" for (nm, a) in sorted(self._defs) if nm == expr.name
+                )
+                raise SquealError(
+                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена (есть {have})"
+                )
             elif expr.name in self._scope:
-                callee = _var(expr.line, self._resolve(expr.name))
+                callee = _var(expr.line, self._resolve(expr.name, expr.line))
             elif expr.name in self._imports:
                 module, fname = self._imports[expr.name]
                 return (
@@ -487,6 +511,10 @@ class _Gen:
                     hint = " (определена ниже в этой клетке — переставьте её выше)"
                 raise SquealError(
                     f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена{hint}"
+                )
+            elif key not in self._module_defs:
+                raise SquealError(
+                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена"
                 )
             else:
                 callee = (Atom("atom"), expr.line, Atom(expr.name))
@@ -541,9 +569,15 @@ class _Gen:
                 self.expr_form(expr.right),
             )
         if expr.op == "FloorDiv":
-            return self._floordiv(line, expr.left, expr.right)
+            self._used_floordiv = True
+            return self._helper_call(
+                line, "squeal_floordiv", [self.expr_form(expr.left), self.expr_form(expr.right)]
+            )
         if expr.op == "Mod":
-            return self._mod(line, expr.left, expr.right)
+            self._used_mod = True
+            return self._helper_call(
+                line, "squeal_mod", [self.expr_form(expr.left), self.expr_form(expr.right)]
+            )
         if expr.op == "Pow":
             self._used_pow = True
             return self._helper_call(
@@ -557,39 +591,6 @@ class _Gen:
         for operand in expr.operands[1:]:
             form = (Atom("op"), expr.line, Atom(op), form, self.expr_form(operand))
         return form
-
-    def _mod_expr(self, line, ta: Atom, tb: Atom) -> tuple:
-        """Mod = (A rem B + B) rem B — питоновский ``%`` (знак делителя)."""
-        return (Atom("op"), line, Atom("rem"),
-                (Atom("op"), line, Atom("+"),
-                    (Atom("op"), line, Atom("rem"), _var(line, ta), _var(line, tb)),
-                    _var(line, tb)),
-                _var(line, tb))
-
-    def _mod(self, line, left, right) -> tuple:
-        a = self.expr_form(left)
-        b = self.expr_form(right)
-        ta = self.new_temp()
-        tb = self.new_temp()
-        return (Atom("block"), line, [
-            (Atom("match"), line, _var(line, ta), a),
-            (Atom("match"), line, _var(line, tb), b),
-            self._mod_expr(line, ta, tb),
-        ])
-
-    def _floordiv(self, line, left, right) -> tuple:
-        a = self.expr_form(left)
-        b = self.expr_form(right)
-        ta = self.new_temp()
-        tb = self.new_temp()
-        result = (Atom("op"), line, Atom("div"),
-                  (Atom("op"), line, Atom("-"), _var(line, ta), self._mod_expr(line, ta, tb)),
-                  _var(line, tb))
-        return (Atom("block"), line, [
-            (Atom("match"), line, _var(line, ta), a),
-            (Atom("match"), line, _var(line, tb), b),
-            result,
-        ])
 
     def _lambda_form(self, expr: ir.Lambda) -> tuple:
         saved_scope = dict(self._scope)
@@ -674,6 +675,36 @@ class _Gen:
                 (Atom("clause"), line, [l], [], [l]),
             ],
         )
+
+    def _num_helper(self, name: str, line: int, int_body, float_body) -> tuple:
+        a = _var(line, "A")
+        b = _var(line, "B")
+        is_int = lambda v: _remote_call(line, "erlang", "is_integer", [v])  # noqa: E731
+        guard = [[is_int(a), is_int(b)]]
+        return (Atom("function"), line, Atom(name), 2, [
+            (Atom("clause"), line, [a, b], guard, [int_body]),
+            (Atom("clause"), line, [a, b], [], [float_body]),
+        ])
+
+    def mod_helper(self) -> tuple:
+        line = 0
+        a = _var(line, "A")
+        b = _var(line, "B")
+        mod_int = _op(line, "rem", _op(line, "+", _op(line, "rem", a, b), b), b)
+        mod_float = _remote_call(line, "math", "fmod", [
+            _op(line, "+", _remote_call(line, "math", "fmod", [a, b]), b), b,
+        ])
+        return self._num_helper("squeal_mod", line, mod_int, mod_float)
+
+    def floordiv_helper(self) -> tuple:
+        line = 0
+        a = _var(line, "A")
+        b = _var(line, "B")
+        mod_int = _op(line, "rem", _op(line, "+", _op(line, "rem", a, b), b), b)
+        div_int = _op(line, "div", _op(line, "-", a, mod_int), b)
+        div_float = _remote_call(line, "erlang", "float",
+            [_remote_call(line, "math", "floor", [_op(line, "/", a, b)])])
+        return self._num_helper("squeal_floordiv", line, div_int, div_float)
 
     def pow_helpers(self) -> list:
         """Приватные _squeal_pow/2 и _squeal_pow_loop/3: int**int (≥0) — целочисленно,
