@@ -104,3 +104,24 @@ def test_ipykernel_hook():
     finally:
         nb.unload_ipython_extension(shell)
         InteractiveShell.clear_instance()
+
+
+def test_shell_mode_helper_is_variable_call():
+    s = Session()
+    forms, _ = compile_cell("2 ** 3\n", s)
+    call = forms[0]
+    assert call[0] == "call" and call[2][0] == "var"  # {call, {var, '_squeal_pow'}, ...}
+
+
+def test_shell_mode_pow_and_comprehension():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("2 ** 10\n", s)
+        assert repl.eval_forms(forms) == ("ok", "1024")
+        forms, _ = compile_cell("[x * 2 for x in [1, 2, 3]]\n", s)
+        assert repl.eval_forms(forms) == ("ok", "[2,4,6]")
+        forms, _ = compile_cell("{k: 1 for k in {'a': 9}}\n", s)
+        assert repl.eval_forms(forms) == ("ok", "#{a => 1}")
+    finally:
+        repl.close()

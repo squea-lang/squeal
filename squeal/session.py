@@ -17,6 +17,7 @@ class Session:
         self.classes: dict[str, tuple] = {}
         self.imports: dict[str, tuple] = {}
         self._gen = backend._Gen()
+        self._gen._shell_mode = True
         self._gen._imports = self.imports
 
     def compile(self, source: str) -> tuple[list, bool]:

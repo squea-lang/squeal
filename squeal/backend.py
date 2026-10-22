@@ -73,9 +73,16 @@ class _Gen:
         self._temp = 0
         self._used_pow = False
         self._used_iter = False
+        self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
         self._taken: dict[str, int] = {}
+
+    def _helper_call(self, line, name, args) -> tuple:
+        """Вызов хелпера: в модуле — локальная функция, в REPL — связанный fun."""
+        if self._shell_mode:
+            return (Atom("call"), line, _var(line, name), args)
+        return _local_call(line, name, args)
 
     # --- имена переменных ---
 
@@ -402,7 +409,7 @@ class _Gen:
             return self._mod(line, expr.left, expr.right)
         if expr.op == "Pow":
             self._used_pow = True
-            return _local_call(
+            return self._helper_call(
                 line, "_squeal_pow", [self.expr_form(expr.left), self.expr_form(expr.right)]
             )
         raise SquealError(f"бинарный оператор {expr.op} не поддержан")
@@ -489,7 +496,7 @@ class _Gen:
         for q in quals:
             if isinstance(q, ir.Gen):
                 self._used_iter = True
-                iter_form = _local_call(
+                iter_form = self._helper_call(
                     q.line, "squeal_iter", [self.expr_form(q.iter)]
                 )
                 pattern = self._pattern(q.target)
