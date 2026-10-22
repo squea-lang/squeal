@@ -2,6 +2,7 @@
 %%! -noshell
 %% Persistent squeal REPL: читает список абстрактных форм (как Erlang-терм),
 %% вычисляет erl_eval:exprs с живыми bindings и отвечает строкой `OK Value` / `ERR Reason`.
+%% По запросу `{'$pp', Form}` возвращает `PP <base64>` — erl_pp формы (для печати эквивалента).
 %% Хелперы (_squeal_pow, squeal_iter) предзаданы как fun-значения.
 
 main(_) ->
@@ -15,35 +16,39 @@ loop(Bindings) ->
         eof ->
             halt(0);
         Line ->
-            Chars = string:trim(Line),
-            case parse_forms(Chars) of
-                {ok, Forms} ->
-                    try erl_eval:exprs(Forms, Bindings) of
-                        {value, Value, NewBindings} ->
-                            io:put_chars("OK " ++ io_lib:format("~p", [Value]) ++ "\n"),
-                            loop(NewBindings);
-                        Other ->
-                            io:put_chars("ERR " ++ io_lib:format("~p", [Other]) ++ "\n"),
-                            loop(Bindings)
-                    catch
-                        Class:Reason ->
-                            io:put_chars("ERR " ++ io_lib:format("~p", [{Class, Reason}]) ++ "\n"),
-                            loop(Bindings)
-                    end;
+            case parse_term(string:trim(Line)) of
+                {ok, {'$pp', Form}} ->
+                    Source = unicode:characters_to_binary(erl_pp:expr(Form)),
+                    io:put_chars("PP " ++ binary_to_list(base64:encode(Source)) ++ "\n"),
+                    loop(Bindings);
+                {ok, Forms} when is_list(Forms) ->
+                    eval(Forms, Bindings);
+                {ok, Other} ->
+                    io:put_chars("ERR " ++ io_lib:format("~p", [{bad_request, Other}]) ++ "\n"),
+                    loop(Bindings);
                 {error, Reason} ->
                     io:put_chars("ERR " ++ io_lib:format("~p", [Reason]) ++ "\n"),
                     loop(Bindings)
             end
     end.
 
-parse_forms(Chars) ->
+eval(Forms, Bindings) ->
+    try erl_eval:exprs(Forms, Bindings) of
+        {value, Value, NewBindings} ->
+            io:put_chars("OK " ++ io_lib:format("~p", [Value]) ++ "\n"),
+            loop(NewBindings);
+        Other ->
+            io:put_chars("ERR " ++ io_lib:format("~p", [Other]) ++ "\n"),
+            loop(Bindings)
+    catch
+        Class:Reason ->
+            io:put_chars("ERR " ++ io_lib:format("~p", [{Class, Reason}]) ++ "\n"),
+            loop(Bindings)
+    end.
+
+parse_term(Chars) ->
     case erl_scan:string(Chars) of
-        {ok, Tokens, _} ->
-            case erl_parse:parse_term(Tokens) of
-                {ok, Forms} when is_list(Forms) -> {ok, Forms};
-                {ok, Other} -> {ok, [Other]};
-                {error, E} -> {error, E}
-            end;
+        {ok, Tokens, _} -> erl_parse:parse_term(Tokens);
         {error, E, _} -> {error, E}
     end.
 

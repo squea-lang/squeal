@@ -470,6 +470,7 @@ class _Gen:
     def _listcomp_form(self, expr: ir.ListComp) -> tuple:
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
+        self._taken = {}  # цели включений — локальный scope, имена не наследуют X@N
         quals = self._qualifiers(expr.qualifiers)
         elt = self.expr_form(expr.element)
         self._scope = saved_scope
@@ -479,6 +480,7 @@ class _Gen:
     def _dictcomp_form(self, expr: ir.DictComp) -> tuple:
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
+        self._taken = {}
         quals = self._qualifiers(expr.qualifiers)
         key = self.expr_form(expr.key)
         value = self.expr_form(expr.value)

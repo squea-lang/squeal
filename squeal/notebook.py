@@ -11,6 +11,31 @@ from __future__ import annotations
 import ast
 import sys
 
+from .term import Atom
+
+
+def find_comprehensions(node, out=None) -> list:
+    """Найти все формы включений (`lc`/`mc`) в списке форм клетки."""
+    if out is None:
+        out = []
+    if isinstance(node, tuple):
+        if node and isinstance(node[0], Atom) and node[0] in (Atom("lc"), Atom("mc")):
+            out.append(node)
+        for item in node:
+            find_comprehensions(item, out)
+    elif isinstance(node, list):
+        for item in node:
+            find_comprehensions(item, out)
+    return out
+
+
+def compact(source: str) -> str:
+    """erl_pp переносит строки — сжимаем в одну для консоли."""
+    s = " ".join(source.split())
+    for a, b in (("[ ", "["), (" ]", "]"), ("#{ ", "#{"), (" }", "}")):
+        s = s.replace(a, b)
+    return s
+
 
 def load_ipython_extension(ipython) -> None:
     from . import frontend
@@ -48,6 +73,9 @@ def load_ipython_extension(ipython) -> None:
             forms, suppress = state["session"].compile(source)
             if not forms:
                 return
+            if not suppress:
+                for comp in find_comprehensions(forms):
+                    print(f"erl: {compact(state['repl'].pp(comp))}")
             status, value = state["repl"].eval_forms(forms)
             if status == "ok":
                 if not suppress:

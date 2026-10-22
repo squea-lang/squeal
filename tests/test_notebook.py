@@ -199,3 +199,45 @@ def test_hook_accepts_pattern_assign():
     finally:
         nb.unload_ipython_extension(shell)
         InteractiveShell.clear_instance()
+
+
+def test_repl_pp_comprehension():
+    from squeal.notebook import compact
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("[x * 2 for x in [1, 2, 3]]\n", s)
+        assert compact(repl.pp(forms[0])) == "[X * 2 || X <- squeal_iter([1, 2, 3])]"
+        forms, _ = compile_cell("{k: 1 for k in {'a': 9}}\n", s)
+        assert compact(repl.pp(forms[0])) == "#{K => 1 || K <- squeal_iter(#{a => 9})}"
+    finally:
+        repl.close()
+
+
+def test_hook_prints_erl_comprehension():
+    from IPython.core.interactiveshell import InteractiveShell
+    from IPython.utils.capture import capture_output
+    import squeal.notebook as nb
+
+    shell = InteractiveShell.instance()
+    nb.load_ipython_extension(shell)
+    try:
+        with capture_output() as out:
+            shell.run_cell("[x * 2 for x in [1, 2, 3]]")
+        assert "erl: [X * 2 || X <- squeal_iter([1, 2, 3])]" in out.stdout
+        assert "[2,4,6]" in out.stdout
+    finally:
+        nb.unload_ipython_extension(shell)
+        InteractiveShell.clear_instance()
+
+
+def test_comprehension_targets_use_local_names():
+    from squeal.notebook import compact
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        compile_cell("x = 1\nx = x + 1\n", s)           # x -> X, X@1 в сессии
+        forms, _ = compile_cell("[x * 2 for x in [1, 2, 3]]\n", s)
+        assert compact(repl.pp(forms[0])) == "[X * 2 || X <- squeal_iter([1, 2, 3])]"
+    finally:
+        repl.close()

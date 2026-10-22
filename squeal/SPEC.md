@@ -50,8 +50,10 @@ parent: squeal-architecture
 - `squeal_compile.escript` — читает `.abstr`, зовёт `compile:forms`, печатает `.erl` через `erl_pp`.
 - `compiler.py` — конвейер (`compile_source`, `build`); `__main__.py` — командная строка.
 - `session.py` — shell-режим: клетка → формы; session хранит маппинг имён/классы/импорты.
-- `repl.py` + `repl.escript` — persistent Erlang-REPL (`erl_eval:exprs`, bindings живут).
-- `notebook.py` — ipykernel-хук (`pre/post_run_cell` + `ast_transformer` в `pass`).
+- `repl.py` + `repl.escript` — persistent Erlang-REPL (`erl_eval:exprs`, bindings живут;
+  `'$pp'` — `erl_pp` формы для печати эквивалента).
+- `notebook.py` — ipykernel-хук (`pre/post_run_cell` + `ast_transformer` в `pass` + input-трансформер
+  для образцов-присваиваний); перед результатом включений печатает `erl: …`.
 
 ## Границы и ограничения
 
