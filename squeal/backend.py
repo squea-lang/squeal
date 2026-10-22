@@ -68,6 +68,18 @@ def _op(line, op, left, right) -> tuple:
     return (Atom("op"), line, Atom(op), left, right)
 
 
+def _pattern_names(pat) -> list:
+    """Имена, связываемые образцом (для перекрытия определений присваиванием)."""
+    if isinstance(pat, (ir.PName, ir.PStar)):
+        return [pat.name]
+    if isinstance(pat, (ir.PList, ir.PTuple)):
+        names = []
+        for item in pat.items:
+            names.extend(_pattern_names(item))
+        return names
+    return []
+
+
 class _Gen:
     def __init__(self):
         self._temp = 0
@@ -77,6 +89,8 @@ class _Gen:
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
         self._taken: dict[str, int] = {}
+        self._defs: dict[tuple, Atom] = {}
+        self._later_defs: set[tuple] = set()
 
     def _helper_call(self, line, name, args) -> tuple:
         """Вызов хелпера: в модуле — локальная функция, в REPL — связанный fun."""
@@ -86,12 +100,28 @@ class _Gen:
 
     # --- имена переменных ---
 
-    def _bind(self, name: str) -> Atom:
+    def _allocate(self, name: str) -> Atom:
+        """Новое Erlang-имя для привязки (счётчик общий у значений и определений)."""
         count = self._taken.get(name, 0)
         base = variable_name(name)
         new = base if count == 0 else Atom(f"{base}@{count}")
         self._taken[name] = count + 1
+        return new
+
+    def _drop_defs(self, name: str) -> None:
+        for key in [k for k in self._defs if k[0] == name]:
+            del self._defs[key]
+
+    def _bind(self, name: str) -> Atom:
+        new = self._allocate(name)
         self._scope[name] = new
+        return new
+
+    def _bind_def(self, name: str, arity: int) -> Atom:
+        """Определение функции: имя различается по арности (как в Erlang/Gleam)."""
+        new = self._allocate(name)
+        self._defs[(name, arity)] = new
+        self._scope.pop(name, None)
         return new
 
     def _resolve(self, name: str) -> Atom:
@@ -154,27 +184,31 @@ class _Gen:
     def stmt_form(self, stmt) -> tuple:
         if isinstance(stmt, ir.Assign):
             value = self.expr_form(stmt.value)
+            for name in _pattern_names(stmt.target):
+                self._drop_defs(name)  # присваивание перекрывает функцию
             pattern = self._pattern(stmt.target)
             return (Atom("match"), stmt.line, pattern, value)
         if isinstance(stmt, ir.Expr):
             return self.expr_form(stmt.value)
         if isinstance(stmt, ir.Def):
-            return self._def_form(stmt)
+            return self.def_form(stmt, self._bind_def(stmt.name, len(stmt.params)))
         if isinstance(stmt, (ir.If, ir.Match)):
             target, case = self._case_value(stmt)
             return (Atom("match"), stmt.line, _var(stmt.line, self._bind(target)), case)
         raise SquealError(f"нечем генерировать оператор: {stmt!r}")
 
-    def _def_form(self, stmt: ir.Def) -> tuple:
+    def def_form(self, stmt: ir.Def, name: Atom) -> tuple:
         """`F = fun F(X) -> … end` — именованный fun, чтобы работала рекурсия."""
         line = stmt.line
-        name = self._bind(stmt.name)
+        self._later_defs.discard((stmt.name, len(stmt.params)))
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
+        saved_defs = dict(self._defs)
         param_forms = [_var(line, self._bind(p)) for p in stmt.params]
         body = [self.stmt_form(s) for s in stmt.statements]
         self._scope = saved_scope
         self._taken = saved_taken
+        self._defs = saved_defs
         fun = (
             Atom("named_fun"),
             line,
@@ -201,11 +235,13 @@ class _Gen:
             for c in node.cases:
                 saved_scope = dict(self._scope)
                 saved_taken = dict(self._taken)
+                saved_defs = dict(self._defs)
                 patterns = self._case_patterns(c.pattern)  # связывает переменные образца
                 guard = [[self.expr_form(c.guard)]] if c.guard is not None else []
                 c_target, c_body, c_result = self._branch_body(c.body)
                 self._scope = saved_scope
                 self._taken = saved_taken
+                self._defs = saved_defs
                 targets.append(c_target)
                 for p in patterns:
                     clauses.append((Atom("clause"), c.line, [p], guard, c_body + [c_result]))
@@ -216,9 +252,11 @@ class _Gen:
     def _branch(self, stmts):
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
+        saved_defs = dict(self._defs)
         target, body, result = self._branch_body(stmts)
         self._scope = saved_scope
         self._taken = saved_taken
+        self._defs = saved_defs
         return target, body, result
 
     def _branch_body(self, stmts):
@@ -341,7 +379,10 @@ class _Gen:
             return self._boolop(expr)
         if isinstance(expr, ir.Call):
             args = [self.expr_form(a) for a in expr.args]
-            if expr.name in self._scope:
+            key = (expr.name, len(expr.args))
+            if key in self._defs:
+                callee = _var(expr.line, self._defs[key])
+            elif expr.name in self._scope:
                 callee = _var(expr.line, self._resolve(expr.name))
             elif expr.name in self._imports:
                 module, fname = self._imports[expr.name]
@@ -350,6 +391,13 @@ class _Gen:
                     (Atom("remote"), expr.line,
                      (Atom("atom"), 0, Atom(module)), (Atom("atom"), 0, Atom(fname))),
                     args,
+                )
+            elif self._shell_mode:
+                hint = ""
+                if key in self._later_defs:
+                    hint = " (определена ниже в этой клетке — переставьте её выше)"
+                raise SquealError(
+                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена{hint}"
                 )
             else:
                 callee = (Atom("atom"), expr.line, Atom(expr.name))

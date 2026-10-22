@@ -7,8 +7,13 @@ from .ir import Module
 
 
 def check(module: Module) -> None:
+    """Дубли определяются по паре (имя, арность): как в Erlang/Gleam,
+    `fib/1` и `fib/3` — разные функции."""
     seen = set()
     for function in module.functions:
-        if function.name in seen:
-            raise SquealError(f"повторное определение функции {function.name}")
-        seen.add(function.name)
+        key = (function.name, len(function.params))
+        if key in seen:
+            raise SquealError(
+                f"повторное определение функции {function.name}/{len(function.params)}"
+            )
+        seen.add(key)

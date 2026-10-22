@@ -28,12 +28,29 @@ class Session:
         source = frontend.rewrite_pattern_assignments(source)
         toks = frontend._token_chars(source)
         tree = ast.parse(source)
+
+        gen = self._gen
+        saved = (dict(gen._scope), dict(gen._taken), dict(gen._defs))
+        gen._later_defs = {
+            (node.name, len(node.args.args))
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        try:
+            return self._compile_body(tree, toks)
+        except Exception:
+            gen._scope, gen._taken, gen._defs = saved
+            raise
+
+    def _compile_body(self, tree: ast.Module, toks: dict) -> tuple[list, bool]:
         forms = []
         last_is_definition = False
         seen_classes: set[str] = set()
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
-                forms.append(self._gen.stmt_form(self._def(node, toks)))
+                stmt = self._def(node, toks)
+                name = self._gen._bind_def(stmt.name, len(stmt.params))
+                forms.append(self._gen.def_form(stmt, name))
                 last_is_definition = True
             elif isinstance(node, ast.ClassDef):
                 self._class(node, seen_classes)

@@ -693,3 +693,29 @@ def test_pattern_assign_duplicate_name_errors():
     from squeal.errors import SquealError
     with pytest.raises(SquealError):
         compile_source("def f(v):\n    Ok(x, x) = v\n", "src/m.ee", "m")
+
+
+def test_arity_overloading_in_module():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "fib.ee").write_text(
+        "def fib(N):\n    fib(N, 0, 1)\n\n"
+        "def fib(N, current, next):\n    match N:\n        case 0:\n            ret = current\n"
+        "        case _ if N > 0:\n            ret = fib(N - 1, next, current + next)\n    ret\n"
+    )
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p~n", [fib:fib(10), fib:fib(10, 0, 1)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "55 55"
+
+
+def test_duplicate_same_arity_rejected():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError):
+        compile_source("def f(x):\n    x\ndef f(y):\n    y\n", "src/m.ee", "m")

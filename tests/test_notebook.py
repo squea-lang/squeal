@@ -241,3 +241,40 @@ def test_comprehension_targets_use_local_names():
         assert compact(repl.pp(forms[0])) == "[X * 2 || X <- squeal_iter([1, 2, 3])]"
     finally:
         repl.close()
+
+
+def test_repl_arity_overloading():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell(
+            "def fib(N, current, next):\n    match N:\n        case 0:\n            ret = current\n"
+            "        case _ if N > 0:\n            ret = fib(N - 1, next, current + next)\n    ret\n\n"
+            "def fib(N):\n    fib(N, 0, 1)\n", s)
+        assert repl.eval_forms(forms)[0] == "ok"
+        forms, _ = compile_cell("(fib(10), fib(10, 0, 1))\n", s)
+        assert repl.eval_forms(forms) == ("ok", "{55,55}")
+    finally:
+        repl.close()
+
+
+def test_repl_forward_definition_errors():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError) as e:
+        compile_cell("def f(x):\n    g(x)\n\ndef g(y):\n    y\n", Session())
+    assert "не определена" in str(e.value)
+
+
+def test_assignment_shadows_definition():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("def f(x):\n    x + 1\n", s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell("f = lambda x: x + 100\n", s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell("f(1)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "101")
+    finally:
+        repl.close()
