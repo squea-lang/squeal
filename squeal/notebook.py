@@ -22,7 +22,7 @@ def load_ipython_extension(ipython) -> None:
 
     def let_cleanup(lines):
         """Переписывает `Ctor(args) = expr` до Python-парсера (иначе SyntaxError)."""
-        return frontend.rewrite_lets("".join(lines)).splitlines(keepends=True)
+        return frontend.rewrite_pattern_assignments("".join(lines)).splitlines(keepends=True)
 
     class _NoopTransformer(ast.NodeTransformer):
         """Заменяет тело ячейки на pass — Python ничего не выполняет."""

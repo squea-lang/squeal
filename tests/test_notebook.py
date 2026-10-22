@@ -170,7 +170,7 @@ def test_hook_survives_python_syntax_error():
         InteractiveShell.clear_instance()
 
 
-def test_repl_let_constructor_pattern():
+def test_repl_pattern_assign():
     s = Session()
     repl = ErlangRepl()
     try:
@@ -182,7 +182,7 @@ def test_repl_let_constructor_pattern():
         repl.close()
 
 
-def test_hook_accepts_let_form_without_syntax_error():
+def test_hook_accepts_pattern_assign():
     from IPython.core.interactiveshell import InteractiveShell
     from IPython.utils.capture import capture_output
     import squeal.notebook as nb

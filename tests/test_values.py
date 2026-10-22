@@ -661,15 +661,15 @@ def test_builtin_ok_arity_error():
         compile_source("def f():\n    Ok(1, 2)\n", "src/m.ee", "m")
 
 
-def test_rewrite_lets():
-    from squeal.frontend import rewrite_lets
-    assert rewrite_lets("Ok(v) = f(1)\n") == "__squeal_let__(Ok(v), f(1))\n"
-    assert rewrite_lets("x = 1\n") == "x = 1\n"
-    assert rewrite_lets("a, b = (1, 2)\n") == "a, b = (1, 2)\n"
-    assert rewrite_lets("f(x)\n") == "f(x)\n"
+def test_rewrite_pattern_assignments():
+    from squeal.frontend import rewrite_pattern_assignments
+    assert rewrite_pattern_assignments("Ok(v) = f(1)\n") == "__pattern_match__(Ok(v), f(1))\n"
+    assert rewrite_pattern_assignments("x = 1\n") == "x = 1\n"
+    assert rewrite_pattern_assignments("a, b = (1, 2)\n") == "a, b = (1, 2)\n"
+    assert rewrite_pattern_assignments("f(x)\n") == "f(x)\n"
 
 
-def test_let_constructor_pattern():
+def test_pattern_assign_constructor():
     body = _clause_body("def f(v):\n    Ok(x) = v\n    x\n")
     assert body[0][0] == Atom("match")
     assert body[0][2] == (
@@ -679,7 +679,7 @@ def test_let_constructor_pattern():
     assert body[1] == (Atom("var"), 3, Atom("X"))
 
 
-def test_let_constructor_pattern_errors():
+def test_pattern_assign_errors():
     import pytest
     from squeal.errors import SquealError
     with pytest.raises(SquealError):
@@ -688,7 +688,7 @@ def test_let_constructor_pattern_errors():
         compile_source("def f(v):\n    Ok(x, y) = v\n", "src/m.ee", "m")   # арность
 
 
-def test_let_duplicate_name_errors():
+def test_pattern_assign_duplicate_name_errors():
     import pytest
     from squeal.errors import SquealError
     with pytest.raises(SquealError):

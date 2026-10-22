@@ -41,9 +41,9 @@ _UNARY = {ast.USub: "USub", ast.UAdd: "UAdd", ast.Not: "Not"}
 # Встроенные конструкторы (прелюдия как у Gleam): Result = Ok(a) | Error(e).
 BUILTIN_CLASSES = {"Ok": ("value",), "Error": ("value",)}
 
-# Маркер `let`-деструктуризации: `Ctor(args) = expr` переписывается в
-# `__squeal_let__(Ctor(args), expr)`, потому что CPython не принимает call-цель.
-LET_MARKER = "__squeal_let__"
+# Маркер присваивания с образцом: `Ctor(args) = expr` переписывается в
+# `__pattern_match__(Ctor(args), expr)`, потому что CPython не принимает call-цель.
+PATTERN_MARKER = "__pattern_match__"
 
 
 def snake_case(name: str) -> str:
@@ -65,7 +65,7 @@ def snake_case(name: str) -> str:
 
 
 def parse_module(source: str, path: str, name: str) -> ir.Module:
-    source = rewrite_lets(source)
+    source = rewrite_pattern_assignments(source)
     toks = _token_chars(source)
     tree = ast.parse(source)
     classes = _collect_classes(tree)
@@ -147,11 +147,11 @@ def _base_name(node: ast.ClassDef) -> str:
     return node.bases[0].id
 
 
-def rewrite_lets(source: str) -> str:
-    """`Ctor(args) = expr` → `__squeal_let__(Ctor(args), expr)`.
+def rewrite_pattern_assignments(source: str) -> str:
+    """`Ctor(args) = expr` → `__pattern_match__(Ctor(args), expr)`.
 
-    CPython не принимает call-цель присваивания, поэтому `let`-образцы с
-    конструктором переписываются в вызов-маркер. Число строк сохраняется.
+    CPython не принимает call-цель присваивания, поэтому образцы в позиции
+    присваивания переписываются в вызов-маркер. Число строк сохраняется.
     """
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
@@ -200,18 +200,18 @@ def rewrite_lets(source: str) -> str:
         eq_off = offset(stmt[close + 1].start)
         lhs = source[start_off:eq_off].rstrip()
         rhs = source[eq_off + 1:end_off].strip()
-        edits.append((start_off, end_off, f"{LET_MARKER}({lhs}, {rhs})"))
+        edits.append((start_off, end_off, f"{PATTERN_MARKER}({lhs}, {rhs})"))
 
     for start_off, end_off, replacement in reversed(edits):
         source = source[:start_off] + replacement + source[end_off:]
     return source
 
 
-def _as_let(node: ast.AST, toks: dict, classes: dict):
+def _as_pattern_assign(node: ast.AST, toks: dict, classes: dict):
     if not (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == LET_MARKER
+        and node.func.id == PATTERN_MARKER
         and len(node.args) == 2
         and not node.keywords
     ):
@@ -262,7 +262,7 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in classes:
             raise SquealError(
-                f"{node.lineno}: let-образец с вызовом — только конструктор класса squeal"
+                f"{node.lineno}: образец в присваивании с вызовом — только конструктор класса squeal"
             )
         if node.keywords:
             raise SquealError(f"{node.lineno}: именованные поля в образце не поддержаны")
@@ -278,7 +278,7 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
             + tuple(_expr_to_pattern(a, toks, classes) for a in node.args),
             node.lineno,
         )
-    raise SquealError(f"{node.lineno}: let-образец не поддержан: {type(node).__name__}")
+    raise SquealError(f"{node.lineno}: образец присваивания не поддержан: {type(node).__name__}")
 
 
 def _token_chars(source: str) -> dict:
@@ -355,9 +355,9 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
             f"{node.lineno}: мутирующее присваивание {type(node.op).__name__} не поддержано"
         )
     if isinstance(node, ast.Expr):
-        let = _as_let(node.value, toks, classes)
-        if let is not None:
-            return let
+        assign = _as_pattern_assign(node.value, toks, classes)
+        if assign is not None:
+            return assign
         return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)
     if isinstance(node, ast.Return):
         return ir.Expr(value=_expr(node.value, toks, classes), line=node.lineno)

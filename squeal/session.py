@@ -25,7 +25,7 @@ class Session:
 
         ``подавлять_вывод`` — True, когда клетка только определяет (def/class/import).
         """
-        source = frontend.rewrite_lets(source)
+        source = frontend.rewrite_pattern_assignments(source)
         toks = frontend._token_chars(source)
         tree = ast.parse(source)
         forms = []
