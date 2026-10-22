@@ -29,12 +29,13 @@ class Session:
         tree = ast.parse(source)
         forms = []
         last_is_definition = False
+        seen_classes: set[str] = set()
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
                 forms.append(self._gen.stmt_form(self._def(node, toks)))
                 last_is_definition = True
             elif isinstance(node, ast.ClassDef):
-                self._class(node)
+                self._class(node, seen_classes)
                 last_is_definition = True
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 self._import(node)
@@ -56,15 +57,19 @@ class Session:
             raise SquealError(f"{node.lineno}: функция {node.name} без значения")
         return ir.Def(name=node.name, params=params, statements=body, line=node.lineno)
 
-    def _class(self, node: ast.ClassDef) -> None:
+    def _class(self, node: ast.ClassDef, seen: set[str]) -> None:
         fields = frontend._class_fields(node)
         base = frontend._base_name(node)
         if base != "StartingWithAtom":
             raise SquealError(
                 f"{node.lineno}: базовый класс {base!r} — поддержан только StartingWithAtom"
             )
-        if node.name in self.classes:
-            raise SquealError(f"{node.lineno}: повторное определение класса {node.name}")
+        if node.name in seen:
+            raise SquealError(
+                f"{node.lineno}: повторное определение класса {node.name} в одной ячейке"
+            )
+        seen.add(node.name)
+        # переопределение между ячейками разрешено: повторный запуск клетки — не ошибка
         self.classes[node.name] = fields
 
     def _import(self, node: ast.stmt) -> None:

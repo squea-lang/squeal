@@ -125,3 +125,20 @@ def test_shell_mode_pow_and_comprehension():
         assert repl.eval_forms(forms) == ("ok", "#{a => 1}")
     finally:
         repl.close()
+
+
+def test_class_redefinition_across_cells_is_allowed():
+    s = Session()
+    src = "class T(StartingWithAtom):\n    x: int\n"
+    assert compile_cell(src, s)[0] == []
+    assert compile_cell(src, s)[0] == []  # повторный запуск клетки — не ошибка
+
+
+def test_class_duplicate_within_cell_errors():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError):
+        compile_cell(
+            "class T(StartingWithAtom):\n    x: int\nclass T(StartingWithAtom):\n    y: int\n",
+            Session(),
+        )
