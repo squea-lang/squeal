@@ -636,3 +636,26 @@ def test_listcomp_over_dict_keys():
          'io:format("~p~n", [lc:f(#{a => 1})]), halt().'],
         capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[a]"
+
+
+def test_builtin_ok_error():
+    body = _expr_form("def f():\n    Ok(1)\n")
+    assert body == (Atom("tuple"), 2, [(Atom("atom"), 2, Atom("ok")), (Atom("integer"), 2, 1)])
+    body = _expr_form("def f():\n    Error('boom')\n")
+    assert body == (Atom("tuple"), 2, [(Atom("atom"), 2, Atom("error")), (Atom("atom"), 2, Atom("boom"))])
+
+
+def test_builtin_ok_error_pattern():
+    body = _clause_body(
+        "def f(r):\n    match r:\n        case Ok(v):\n            x = v\n        case Error(e):\n            x = 0\n    x\n"
+    )
+    case = body[0][3]
+    assert case[3][0][2][0][2][0] == (Atom("atom"), 3, Atom("ok"))
+    assert case[3][1][2][0][2][0] == (Atom("atom"), 5, Atom("error"))
+
+
+def test_builtin_ok_arity_error():
+    import pytest
+    from squeal.errors import SquealError
+    with pytest.raises(SquealError):
+        compile_source("def f():\n    Ok(1, 2)\n", "src/m.ee", "m")

@@ -37,6 +37,9 @@ _CMP = {
 _BOOL = {ast.And: "And", ast.Or: "Or"}
 _UNARY = {ast.USub: "USub", ast.UAdd: "UAdd", ast.Not: "Not"}
 
+# Встроенные конструкторы (прелюдия как у Gleam): Result = Ok(a) | Error(e).
+BUILTIN_CLASSES = {"Ok": ("value",), "Error": ("value",)}
+
 
 def snake_case(name: str) -> str:
     """Точный порт ``to_snake_case`` у Gleam: ``CustomType`` → ``custom_type``."""
@@ -97,7 +100,7 @@ def _collect_imports(tree: ast.Module) -> dict:
 
 
 def _collect_classes(tree: ast.Module) -> dict:
-    classes = {}
+    classes = dict(BUILTIN_CLASSES)
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             fields = _class_fields(node)

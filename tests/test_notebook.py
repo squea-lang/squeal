@@ -142,3 +142,29 @@ def test_class_duplicate_within_cell_errors():
             "class T(StartingWithAtom):\n    x: int\nclass T(StartingWithAtom):\n    y: int\n",
             Session(),
         )
+
+
+def test_session_builtin_ok_error():
+    s = Session()
+    forms, _ = compile_cell("Ok(1)\n", s)
+    assert forms[0][0] == "tuple" and forms[0][2][0] == ("atom", 1, "ok")
+    forms, _ = compile_cell("Error('boom')\n", s)
+    assert forms[0][2][0] == ("atom", 1, "error")
+
+
+def test_hook_survives_python_syntax_error():
+    from IPython.core.interactiveshell import InteractiveShell
+    from IPython.utils.capture import capture_output
+    import squeal.notebook as nb
+
+    shell = InteractiveShell.instance()
+    nb.load_ipython_extension(shell)
+    try:
+        with capture_output():
+            shell.run_cell("Ok(val) = 1")  # невалидный Python: call = ...
+        with capture_output() as c2:
+            shell.run_cell("40 + 2")
+        assert c2.stdout.strip() == "42"  # сессия жива после SyntaxError
+    finally:
+        nb.unload_ipython_extension(shell)
+        InteractiveShell.clear_instance()

@@ -430,3 +430,11 @@ def test_parity_boolean_chain():
         "def bc(a, b, c):\n    a and b and c\n",
         "bc", "parity_bc",
     )
+
+
+def test_parity_builtin_ok_error():
+    assert_parity(
+        'pub fn ok1() { Ok(1) }\npub fn err1() { Error("boom") }\n',
+        'def ok1():\n    Ok(1)\ndef err1():\n    Error("boom")\n',
+        "res", "parity_res",
+    )

@@ -31,8 +31,12 @@ def load_ipython_extension(ipython) -> None:
 
     def post_run_cell(result) -> None:
         source = state["raw_cell"]
-        if source is None or result.error_in_exec is not None:
-            return
+        if (
+            source is None
+            or result.error_before_exec is not None
+            or result.error_in_exec is not None
+        ):
+            return  # Python уже показал ошибку (например, SyntaxError)
         try:
             if state["repl"] is None:
                 state["repl"] = ErlangRepl()
@@ -45,6 +49,8 @@ def load_ipython_extension(ipython) -> None:
                     print(value)
             else:
                 sys.stderr.write(f"squeal runtime error: {value}\n")
+        except SyntaxError:
+            pass  # клетка — не валидный Python-синтаксис, это уже видно в выводе
         except SquealError as exc:
             sys.stderr.write(f"squeal: {exc}\n")
 

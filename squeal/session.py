@@ -14,7 +14,7 @@ from .errors import SquealError
 
 class Session:
     def __init__(self):
-        self.classes: dict[str, tuple] = {}
+        self.classes: dict[str, tuple] = dict(frontend.BUILTIN_CLASSES)
         self.imports: dict[str, tuple] = {}
         self._gen = backend._Gen()
         self._gen._shell_mode = True

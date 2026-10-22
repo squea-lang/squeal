@@ -28,7 +28,8 @@ parent: squeal-architecture
   `|=` — слияние map; `if`/`else` и `match`/`case` (образцы: литералы, `_`, захват, or, списки/кортежи, словарь; guard);
   `for`/`while`/`del`/AugAssign(кроме `|=`)/присваивание по индексу-атрибуту — ошибка.
   Классы `StartingWithAtom`: конструктор `T(…)` инлайнится в кортеж `{t, …}`, образец `case T(…)` → `{t, …}`;
-  `snake_case` — порт Gleam; `NativeRecord`/`Map` — ошибка; арность конструктора и класс-образца проверяется.
+  `snake_case` — порт Gleam; `NativeRecord`/`Map` — ошибка; арность конструктора и класс-образца проверяется;
+  встроенные `Ok`/`Error` (прелюдия) — `{ok, …}`/`{error, …}`.
   `lambda` → IR; включения list/dict (все генераторы через `squeal_iter`, `for k, v in m.items()` → map-генератор,
   получатель `.items()` может быть любым выражением); `.items()` — единственный метод;
   set comprehension и generator-выражения — ошибка. `from a.b.c import f, g as h` — импорты
