@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+erl_crash.dump
+*.beam
+*.erl
+*.abstr
+.idea/
