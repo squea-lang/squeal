@@ -438,3 +438,11 @@ def test_parity_builtin_ok_error():
         'def ok1():\n    Ok(1)\ndef err1():\n    Error("boom")\n',
         "res", "parity_res",
     )
+
+
+def test_parity_tail_case():
+    assert_parity(
+        "pub fn f(c: Bool) -> Int {\n  case c {\n    True -> 1\n    False -> 2\n  }\n}\n",
+        "def f(c):\n    if c:\n        1\n    else:\n        2\n",
+        "tc", "parity_tc",
+    )

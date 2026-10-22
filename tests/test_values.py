@@ -197,9 +197,10 @@ def test_branch_errors():
     import pytest
     from squeal.errors import SquealError
     for source in [
-        "def f(c):\n    if c:\n        a = 1\n    else:\n        b = 2\n",   # разные цели
-        "def f(c):\n    if c:\n        v = 1\n",          # if без else
-        "def f(v):\n    match v:\n        case 1:\n            a = 1\n        case 2:\n            b = 2\n",  # разные цели
+        # разные цели — только в НЕхвостовой позиции (в хвосте теперь допустимы)
+        "def f(c):\n    if c:\n        a = 1\n    else:\n        b = 2\n    a\n",
+        "def f(v):\n    match v:\n        case 1:\n            a = 1\n        case 2:\n            b = 2\n    a\n",
+        "def f(c):\n    if c:\n        v = 1\n",   # if без else
     ]:
         with pytest.raises(SquealError):
             compile_source(source, "src/m.ee", "m")
@@ -719,3 +720,41 @@ def test_duplicate_same_arity_rejected():
     from squeal.errors import SquealError
     with pytest.raises(SquealError):
         compile_source("def f(x):\n    x\ndef f(y):\n    y\n", "src/m.ee", "m")
+
+
+def test_tail_if_returns_value():
+    body = _clause_body("def f(c):\n    if c:\n        1\n    else:\n        2\n")
+    assert len(body) == 1 and body[0][0] == Atom("case")
+    assert body[0][2] == (Atom("var"), 2, Atom("C"))
+
+
+def test_tail_match_returns_value():
+    body = _clause_body(
+        "def f(v):\n    match v:\n        case 1:\n            'one'\n        case _:\n            'other'\n")
+    assert len(body) == 1 and body[0][0] == Atom("case")
+    assert len(body[0][3]) == 2
+
+
+def test_tail_case_with_assignments_still_binds():
+    body = _clause_body("def f(c):\n    if c:\n        v = 1\n    else:\n        v = 2\n")
+    assert len(body) == 1 and body[0][0] == Atom("match")
+    assert body[0][2] == (Atom("var"), 2, Atom("V"))
+    assert body[0][3][0] == Atom("case")
+
+
+def test_tail_case_semantics_in_erl():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "t.ee").write_text(
+        "def pick(c):\n    if c:\n        'yes'\n    else:\n        'no'\n"
+        "def num(v):\n    match v:\n        case 1:\n            10\n        case _:\n            20\n"
+    )
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p ~p~n", [t:pick(true), t:pick(false), t:num(1)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "yes no 10"

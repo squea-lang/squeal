@@ -163,6 +163,7 @@ class _Gen:
     def function_form(self, function: ir.Function) -> tuple:
         self._scope = {}
         self._taken = {}
+        self._defs = {}
         self._temp = 0
         line = function.line
 
@@ -170,7 +171,8 @@ class _Gen:
         for p in function.params:
             param_forms.append(_var(line, self._bind(p)))
 
-        body = [self.stmt_form(s) for s in function.statements]
+        body = [self.stmt_form(s) for s in function.statements[:-1]]
+        body.append(self.tail_stmt_form(function.statements[-1]))
         return (
             Atom("function"),
             line,
@@ -178,6 +180,92 @@ class _Gen:
             len(param_forms),
             [(Atom("clause"), line, param_forms, [], body)],
         )
+
+    # --- операторы ---
+
+    def tail_stmt_form(self, stmt) -> tuple:
+        """Последний оператор тела: `if`/`match` может отдать значение без хвостового
+        присваивания. Старое поведение (все ветки присваивают одну переменную)
+        сохраняется — переменная остаётся связанной."""
+        if isinstance(stmt, (ir.If, ir.Match)):
+            return self._case_tail(stmt)
+        return self.stmt_form(stmt)
+
+    def _tail_of(self, stmt):
+        """Имя, которое ветка связывает в хвосте, или None."""
+        if isinstance(stmt, ir.Assign) and isinstance(stmt.target, ir.PName):
+            return stmt.target.name
+        if isinstance(stmt, ir.If):
+            return self._tail_assign_target([stmt.then_body, stmt.else_body])
+        if isinstance(stmt, ir.Match):
+            return self._tail_assign_target([c.body for c in stmt.cases])
+        return None
+
+    def _tail_assign_target(self, bodies):
+        names = []
+        for stmts in bodies:
+            name = self._tail_of(stmts[-1])
+            if name is None:
+                return None
+            names.append(name)
+        return names[0] if len(set(names)) == 1 else None
+
+    def _case_tail(self, node) -> tuple:
+        if self._tail_assign_target(
+            [node.then_body, node.else_body] if isinstance(node, ir.If)
+            else [c.body for c in node.cases]
+        ) is not None:
+            target, case = self._case_value(node)
+            return (Atom("match"), node.line, _var(node.line, self._bind(target)), case)
+        return self._case_value_only(node)
+
+    def _branch_tail(self, stmts):
+        saved_scope = dict(self._scope)
+        saved_taken = dict(self._taken)
+        saved_defs = dict(self._defs)
+        body = self._branch_tail_body(stmts)
+        self._scope = saved_scope
+        self._taken = saved_taken
+        self._defs = saved_defs
+        return body
+
+    def _branch_tail_body(self, stmts):
+        body = [self.stmt_form(s) for s in stmts[:-1]]
+        last = stmts[-1]
+        if isinstance(last, (ir.If, ir.Match)):
+            body.append(self._case_value_only(last))
+        elif isinstance(last, ir.Assign):
+            body.append(self.stmt_form(last))
+        elif isinstance(last, ir.Expr):
+            body.append(self.expr_form(last.value))
+        else:
+            raise SquealError(f"{last.line}: хвост ветки должен быть выражением")
+        return body
+
+    def _case_value_only(self, node) -> tuple:
+        if isinstance(node, ir.If):
+            cond = self.expr_form(node.condition)
+            then_body = self._branch_tail(node.then_body)
+            else_body = self._branch_tail(node.else_body)
+            return (Atom("case"), node.line, cond, [
+                (Atom("clause"), node.line, [_atom(node.line, "true")], [], then_body),
+                (Atom("clause"), node.line, [_atom(node.line, "false")], [], else_body),
+            ])
+        subject = self.expr_form(node.subject)
+        clauses = []
+        for c in node.cases:
+            saved_scope = dict(self._scope)
+            saved_taken = dict(self._taken)
+            saved_defs = dict(self._defs)
+            patterns = self._case_patterns(c.pattern)
+            guard = [[self.expr_form(c.guard)]] if c.guard is not None else []
+            body = self._branch_tail_body(c.body)
+            self._scope = saved_scope
+            self._taken = saved_taken
+            self._defs = saved_defs
+            for p in patterns:
+                clauses.append((Atom("clause"), c.line, [p], guard, body))
+        return (Atom("case"), node.line, subject, clauses)
 
     # --- операторы ---
 
@@ -205,7 +293,8 @@ class _Gen:
         saved_taken = dict(self._taken)
         saved_defs = dict(self._defs)
         param_forms = [_var(line, self._bind(p)) for p in stmt.params]
-        body = [self.stmt_form(s) for s in stmt.statements]
+        body = [self.stmt_form(s) for s in stmt.statements[:-1]]
+        body.append(self.tail_stmt_form(stmt.statements[-1]))
         self._scope = saved_scope
         self._taken = saved_taken
         self._defs = saved_defs

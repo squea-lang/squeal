@@ -43,14 +43,12 @@ class Session:
             raise
 
     def _compile_body(self, tree: ast.Module, toks: dict) -> tuple[list, bool]:
-        forms = []
+        stmts = []
         last_is_definition = False
         seen_classes: set[str] = set()
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
-                stmt = self._def(node, toks)
-                name = self._gen._bind_def(stmt.name, len(stmt.params))
-                forms.append(self._gen.def_form(stmt, name))
+                stmts.append(self._def(node, toks))
                 last_is_definition = True
             elif isinstance(node, ast.ClassDef):
                 self._class(node, seen_classes)
@@ -61,8 +59,12 @@ class Session:
             else:
                 stmt = frontend._statement(node, toks, self.classes)
                 if stmt is not None:
-                    forms.append(self._gen.stmt_form(stmt))
+                    stmts.append(stmt)
                     last_is_definition = False
+
+        forms = [self._gen.stmt_form(s) for s in stmts[:-1]]
+        if stmts:
+            forms.append(self._gen.tail_stmt_form(stmts[-1]))
         return forms, last_is_definition
 
     def _def(self, node: ast.FunctionDef, toks: dict) -> ir.Def:
