@@ -9,7 +9,8 @@ parent: squeal-architecture
 # Squeal — пакет компилятора
 
 Пакет `squeal/` превращает `.ee`-исходник в Erlang Abstract Format и `.beam`. Правила языка
-живут в architecture.md; здесь — ответственность пакета, его границы и стадии.
+живут в architecture.md, правила образцов — в `squeal-patterns` (patterns.md); здесь —
+ответственность пакета, его границы и стадии.
 
 ## Ответственность
 
