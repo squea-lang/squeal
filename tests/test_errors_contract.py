@@ -32,4 +32,4 @@ def test_lint_error_is_clean():
         ["escript", str(ESCRIPT), str(jobs)], capture_output=True, text=True
     )
     assert run.returncode != 0
-    assert run.stderr.strip() == "src/t.ee:3: функция nope/0 не определена"
+    assert run.stderr.strip() == "src/t.ee:3: function nope/0 is not defined"

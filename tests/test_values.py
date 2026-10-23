@@ -894,5 +894,5 @@ def test_decorator_must_be_arity_one():
         "def add(a, b):\n    a + b\n\n@add\ndef g(x):\n    x\n",  # арность 2
         "@nope\ndef g(x):\n    x\n",                              # не существует
     ]:
-        with pytest.raises(SquealError, match="декоратор"):
+        with pytest.raises(SquealError, match="decorator"):
             compile_source(src, "src/m.ee", "m")

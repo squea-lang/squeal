@@ -103,7 +103,7 @@ class Call:
 
 @dataclass(frozen=True)
 class FunRef:
-    """Голое имя в позиции декоратора → `fun name/1`."""
+    """Голое name в позиции декоратора → `fun name/1`."""
 
     name: str
     line: int

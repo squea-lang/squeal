@@ -79,7 +79,7 @@ def parse_module(source: str, path: str, name: str) -> ir.Module:
             continue  # класс/импорт — только резолвинг имён
         else:
             raise SquealError(
-                f"{path}:{node.lineno}: на верхнем уровне допустимы def/class/from…import"
+                f"{path}:{node.lineno}: only def/class/from…import are allowed at the top level"
             )
     return ir.Module(name=name, path=path, functions=tuple(functions), imports=imports)
 
@@ -90,18 +90,18 @@ def _collect_imports(tree: ast.Module) -> dict:
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
             if node.level != 0:
-                raise SquealError(f"{node.lineno}: относительные импорты не поддержаны")
+                raise SquealError(f"{node.lineno}: relative imports are not supported")
             if not node.module:
-                raise SquealError(f"{node.lineno}: безымянный import")
+                raise SquealError(f"{node.lineno}: import without a module name")
             for alias in node.names:
                 if alias.name == "*":
-                    raise SquealError(f"{node.lineno}: import * не поддержан")
+                    raise SquealError(f"{node.lineno}: import * is not supported")
                 imports[alias.asname or alias.name] = (
                     node.module.replace(".", "@"),
                     alias.name,
                 )
         elif isinstance(node, ast.Import):
-            raise SquealError(f"{node.lineno}: import X — только from X import …")
+            raise SquealError(f"{node.lineno}: plain import X is not supported — use from X import …")
     return imports
 
 
@@ -112,21 +112,21 @@ def _collect_classes(tree: ast.Module) -> dict:
         if isinstance(node, ast.ClassDef):
             if node.decorator_list:
                 raise SquealError(
-                f"{node.lineno}: декораторы поддержаны только над функциями"
+                f"{node.lineno}: decorators are only supported on functions"
             )
             fields = _class_fields(node)
             base = _base_name(node)
             if base != "StartingWithAtom":
                 raise SquealError(
-                    f"{node.lineno}: базовый класс {base!r} — поддержан только "
-                    "StartingWithAtom (NativeRecord/Map — позже)"
+                    f"{node.lineno}: base class {base!r} is not supported — only "
+                    "StartingWithAtom (NativeRecord/Map come later)"
                 )
             if node.name in classes:
-                raise SquealError(f"{node.lineno}: повторное определение класса {node.name}")
+                raise SquealError(f"{node.lineno}: duplicate definition of class {node.name}")
             tag = snake_case(node.name)
             if tag in tags and tags[tag] != node.name:
                 raise SquealError(
-                    f"{node.lineno}: классы {node.name} и {tags[tag]} дают один тег {tag!r}"
+                    f"{node.lineno}: classes {node.name} and {tags[tag]} produce the same tag {tag!r}"
                 )
             tags[tag] = node.name
             classes[node.name] = fields
@@ -138,23 +138,23 @@ def _class_fields(node: ast.ClassDef) -> tuple:
     for stmt in node.body:
         if isinstance(stmt, ast.AnnAssign):
             if stmt.value is not None:
-                raise SquealError(f"{stmt.lineno}: поле класса — только аннотация без значения")
+                raise SquealError(f"{stmt.lineno}: a class field must be an annotation without a value")
             if not isinstance(stmt.target, ast.Name):
-                raise SquealError(f"{stmt.lineno}: поле класса — только имя")
+                raise SquealError(f"{stmt.lineno}: a class field must be a name")
             fields.append(stmt.target.id)
         else:
             raise SquealError(
-                f"{stmt.lineno}: в теле класса — только аннотации полей "
-                f"(не {type(stmt).__name__})"
+                f"{stmt.lineno}: class body allows only field annotations "
+                f"(not {type(stmt).__name__})"
             )
     return tuple(fields)
 
 
 def _base_name(node: ast.ClassDef) -> str:
     if not node.bases:
-        raise SquealError(f"{node.lineno}: классу нужен базовый класс (StartingWithAtom)")
+        raise SquealError(f"{node.lineno}: a class needs a base class (StartingWithAtom)")
     if len(node.bases) != 1 or not isinstance(node.bases[0], ast.Name):
-        raise SquealError(f"{node.lineno}: ровно один базовый класс-имя")
+        raise SquealError(f"{node.lineno}: exactly one base class name")
     return node.bases[0].id
 
 
@@ -242,7 +242,7 @@ def _check_pattern_names(pat, seen=None) -> set:
         seen = set()
     if isinstance(pat, (ir.PName, ir.PStar)):
         if pat.name in seen:
-            raise SquealError(f"{pat.line}: повторное имя {pat.name!r} в образце")
+            raise SquealError(f"{pat.line}: duplicate name {pat.name!r} in a pattern")
         seen.add(pat.name)
     elif isinstance(pat, (ir.PList, ir.PTuple)):
         for item in pat.items:
@@ -258,7 +258,7 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
         return ir.Wildcard(node.lineno) if node.id == "_" else ir.PName(node.id, node.lineno)
     if isinstance(node, ast.Starred):
         if not isinstance(node.value, ast.Name):
-            raise SquealError(f"{node.lineno}: звезда только для имени")
+            raise SquealError(f"{node.lineno}: star is only allowed for a name")
         return ir.PStar(node.value.id, node.lineno)
     if isinstance(node, ast.Tuple):
         return ir.PTuple(
@@ -273,15 +273,15 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in classes:
             raise SquealError(
-                f"{node.lineno}: образец в присваивании с вызовом — только конструктор класса squeal"
+                f"{node.lineno}: a pattern in a call assignment must be a squeal class constructor"
             )
         if node.keywords:
-            raise SquealError(f"{node.lineno}: именованные поля в образце не поддержаны")
+            raise SquealError(f"{node.lineno}: named fields in a pattern are not supported")
         fields = classes[node.func.id]
         if len(node.args) != len(fields):
             raise SquealError(
-                f"{node.lineno}: конструктор {node.func.id} ожидает {len(fields)} аргументов, "
-                f"получено {len(node.args)}"
+                f"{node.lineno}: constructor {node.func.id} expects {len(fields)} arguments, "
+                f"got {len(node.args)}"
             )
         tag = snake_case(node.func.id)
         return ir.PTuple(
@@ -289,7 +289,7 @@ def _expr_to_pattern(node: ast.AST, toks: dict, classes: dict):
             + tuple(_expr_to_pattern(a, toks, classes) for a in node.args),
             node.lineno,
         )
-    raise SquealError(f"{node.lineno}: образец присваивания не поддержан: {type(node).__name__}")
+    raise SquealError(f"{node.lineno}: unsupported assignment pattern: {type(node).__name__}")
 
 
 class _SourceChars:
@@ -323,11 +323,11 @@ def _decorator(node: ast.AST, toks: dict, classes: dict):
         return ir.FunRef(name=node.id, line=node.lineno)
     if isinstance(node, ast.Attribute):
         if not isinstance(node.value, ast.Name):
-            raise SquealError(f"{node.lineno}: декоратор — только имя или модуль.функция")
+            raise SquealError(f"{node.lineno}: decorator must be a name or module.function")
         return ir.RemoteFunRef(module=node.value.id, name=node.attr, line=node.lineno)
     if isinstance(node, ast.Call):
         if node.keywords:
-            raise SquealError(f"{node.lineno}: именованные аргументы декоратора не поддержаны")
+            raise SquealError(f"{node.lineno}: named decorator arguments are not supported")
         args = tuple(_expr(a, toks, classes) for a in node.args)
         func = node.func
         if isinstance(func, ast.Name):
@@ -337,7 +337,7 @@ def _decorator(node: ast.AST, toks: dict, classes: dict):
                 module=func.value.id, name=func.attr, args=args, line=node.lineno
             )
     raise SquealError(
-        f"{node.lineno}: декоратор — только имя, модуль.функция или их вызов"
+        f"{node.lineno}: decorator must be a name, module.function or a call of them"
     )
 
 
@@ -346,12 +346,12 @@ def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
     a = node.args
     if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
         raise SquealError(
-            f"{node.lineno}: параметры со значениями/vararg пока не поддерживаются"
+            f"{node.lineno}: parameters with defaults/vararg are not supported yet"
         )
     params = tuple(arg.arg for arg in a.args)
     statements = _statements(node.body, toks, classes)
     if not statements:
-        raise SquealError(f"{node.lineno}: функция {node.name} без значения")
+        raise SquealError(f"{node.lineno}: function {node.name} has no value")
     return ir.Function(
         name=node.name,
         params=params,
@@ -366,11 +366,11 @@ def _nested_def(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.NestedDe
     a = node.args
     if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
         raise SquealError(
-            f"{node.lineno}: параметры со значениями/vararg пока не поддерживаются"
+            f"{node.lineno}: parameters with defaults/vararg are not supported yet"
         )
     statements = _statements(node.body, toks, classes)
     if not statements:
-        raise SquealError(f"{node.lineno}: функция {node.name} без значения")
+        raise SquealError(f"{node.lineno}: function {node.name} has no value")
     return ir.NestedDef(
         name=node.name,
         params=tuple(arg.arg for arg in a.args),
@@ -394,7 +394,7 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
         return _nested_def(node, toks, classes)
     if isinstance(node, ast.Assign):
         if len(node.targets) != 1:
-            raise SquealError(f"{node.lineno}: цепочное присваивание a = b = … не поддержано")
+            raise SquealError(f"{node.lineno}: chained assignment a = b = … is not supported")
         return ir.Assign(
             target=_target(node.targets[0]),
             value=_expr(node.value, toks, classes),
@@ -402,9 +402,9 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
         )
     if isinstance(node, ast.AnnAssign):
         if node.value is None:
-            raise SquealError(f"{node.lineno}: аннотация без значения не поддержана")
+            raise SquealError(f"{node.lineno}: annotation without a value is not supported")
         if not isinstance(node.target, ast.Name):
-            raise SquealError(f"{node.lineno}: аннотация только для имени")
+            raise SquealError(f"{node.lineno}: annotation is only allowed on a name")
         return ir.Assign(
             target=ir.PName(node.target.id, node.target.lineno),
             value=_expr(node.value, toks, classes),
@@ -413,7 +413,7 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
     if isinstance(node, ast.AugAssign):
         if isinstance(node.op, ast.BitOr):
             if not isinstance(node.target, ast.Name):
-                raise SquealError(f"{node.lineno}: |= только для имени")
+                raise SquealError(f"{node.lineno}: |= is only allowed on a name")
             return ir.Assign(
                 target=ir.PName(node.target.id, node.target.lineno),
                 value=ir.Merge(
@@ -424,7 +424,7 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
                 line=node.lineno,
             )
         raise SquealError(
-            f"{node.lineno}: мутирующее присваивание {type(node.op).__name__} не поддержано"
+            f"{node.lineno}: mutating assignment {type(node.op).__name__} is not supported"
         )
     if isinstance(node, ast.Expr):
         assign = _as_pattern_assign(node.value, toks, classes)
@@ -439,7 +439,7 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
     if isinstance(node, ast.If):
         else_body = _statements(node.orelse, toks, classes)
         if not else_body:
-            raise SquealError(f"{node.lineno}: if без else — нет значения на ложном пути")
+            raise SquealError(f"{node.lineno}: if without else has no value on the false path")
         return ir.If(
             condition=_expr(node.test, toks, classes),
             then_body=_statements(node.body, toks, classes),
@@ -463,10 +463,10 @@ def _statement(node: ast.stmt, toks: dict, classes: dict):
             line=node.lineno,
         )
     if isinstance(node, (ast.For, ast.While)):
-        raise SquealError(f"{node.lineno}: цикл {type(node).__name__} запрещён — squeal без мутаций")
+        raise SquealError(f"{node.lineno}: loop {type(node).__name__} is forbidden — squeal has no mutation")
     if isinstance(node, ast.Delete):
-        raise SquealError(f"{node.lineno}: del запрещён")
-    raise SquealError(f"{node.lineno}: оператор {type(node).__name__} не поддержан")
+        raise SquealError(f"{node.lineno}: del is forbidden")
+    raise SquealError(f"{node.lineno}: operator {type(node).__name__} is not supported")
 
 
 def _target(node: ast.AST) -> object:
@@ -477,12 +477,12 @@ def _target(node: ast.AST) -> object:
     elif isinstance(node, ast.List):
         items = tuple(_target_elt(e) for e in node.elts)
     else:
-        raise SquealError(f"{node.lineno}: цель присваивания не поддержана (индекс/атрибут)")
+        raise SquealError(f"{node.lineno}: unsupported assignment target (index/attribute)")
 
     stars = [i for i, it in enumerate(items) if isinstance(it, ir.PStar)]
     if stars:
         if len(stars) != 1 or stars[0] != len(items) - 1:
-            raise SquealError(f"{node.lineno}: звезда только одна и в конце образца")
+            raise SquealError(f"{node.lineno}: only one star, and at the end of the pattern")
         return ir.PList(items=items, line=node.lineno)
     if isinstance(node, ast.Tuple):
         return ir.PTuple(items=items, line=node.lineno)
@@ -492,7 +492,7 @@ def _target(node: ast.AST) -> object:
 def _target_elt(node: ast.AST) -> object:
     if isinstance(node, ast.Starred):
         if not isinstance(node.value, ast.Name):
-            raise SquealError(f"{node.lineno}: звезда только для имени")
+            raise SquealError(f"{node.lineno}: star is only allowed for a name")
         return ir.PStar(node.value.id, node.lineno)
     return _target(node)
 
@@ -508,7 +508,7 @@ def _match_pattern(node: ast.AST, toks: dict, classes: dict) -> object:
         if node.name is None:
             return ir.Wildcard(node.lineno)
         if node.pattern is not None:
-            raise SquealError(f"{node.lineno}: as-образец не поддержан")
+            raise SquealError(f"{node.lineno}: as-pattern is not supported")
         return ir.PName(node.name, node.lineno)
     if isinstance(node, ast.MatchStar):
         return ir.PStar(node.name, node.lineno)
@@ -529,21 +529,21 @@ def _match_pattern(node: ast.AST, toks: dict, classes: dict) -> object:
         return ir.PMap(items=tuple(zip(keys, pats)), line=node.lineno)
     if isinstance(node, ast.MatchClass):
         if not isinstance(node.cls, ast.Name) or node.cls.id not in classes:
-            raise SquealError(f"{node.lineno}: класс-образец только для классов squeal")
+            raise SquealError(f"{node.lineno}: class pattern is only allowed for squeal classes")
         if node.kwd_patterns:
-            raise SquealError(f"{node.lineno}: именованные поля в класс-образце не поддержаны")
+            raise SquealError(f"{node.lineno}: named fields in a class pattern are not supported")
         fields = classes[node.cls.id]
         if len(node.patterns) != len(fields):
             raise SquealError(
-                f"{node.lineno}: образец {node.cls.id} ожидает {len(fields)} полей, "
-                f"получено {len(node.patterns)}"
+                f"{node.lineno}: pattern {node.cls.id} expects {len(fields)} fields, "
+                f"got {len(node.patterns)}"
             )
         tag = snake_case(node.cls.id)
         items = (ir.AtomLit(tag, node.lineno),) + tuple(
             _match_pattern(p, toks, classes) for p in node.patterns
         )
         return ir.PTuple(items=items, line=node.lineno)
-    raise SquealError(f"{node.lineno}: образец {type(node).__name__} не поддержан")
+    raise SquealError(f"{node.lineno}: pattern {type(node).__name__} is not supported")
 
 
 def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
@@ -562,7 +562,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
             if q == "'":
                 return ir.AtomLit(name=v, line=node.lineno)
             return ir.String(value=v, line=node.lineno)
-        raise SquealError(f"{node.lineno}: неподдерживаемый литерал {v!r}")
+        raise SquealError(f"{node.lineno}: unsupported literal {v!r}")
 
     if isinstance(node, ast.Name):
         return ir.Var(name=node.id, line=node.lineno)
@@ -582,7 +582,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
     if isinstance(node, ast.UnaryOp):
         op = _UNARY.get(type(node.op))
         if op is None:
-            raise SquealError(f"{node.lineno}: оператор {type(node.op).__name__} не поддержан")
+            raise SquealError(f"{node.lineno}: operator {type(node.op).__name__} is not supported")
         return ir.UnaryOp(
             op=op, operand=_expr(node.operand, toks, classes), line=node.lineno
         )
@@ -591,7 +591,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
         op = _BINOP.get(type(node.op))
         if op is None:
             raise SquealError(
-                f"{node.lineno}: оператор {type(node.op).__name__} не поддержан"
+                f"{node.lineno}: operator {type(node.op).__name__} is not supported"
             )
         return ir.BinOp(
             op=op,
@@ -603,7 +603,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
     if isinstance(node, ast.BoolOp):
         op = _BOOL.get(type(node.op))
         if op is None:
-            raise SquealError(f"{node.lineno}: логический оператор не поддержан")
+            raise SquealError(f"{node.lineno}: boolean operator is not supported")
         return ir.BoolOp(
             op=op,
             operands=tuple(_expr(v, toks, classes) for v in node.values),
@@ -612,10 +612,10 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
 
     if isinstance(node, ast.Compare):
         if len(node.ops) != 1:
-            raise SquealError(f"{node.lineno}: цепочки сравнений пока не поддержаны")
+            raise SquealError(f"{node.lineno}: comparison chains are not supported yet")
         op = _CMP.get(type(node.ops[0]))
         if op is None:
-            raise SquealError(f"{node.lineno}: оператор сравнения (is/in/…) не поддержан")
+            raise SquealError(f"{node.lineno}: comparison operator (is/in/…) is not supported")
         return ir.BinOp(
             op=op,
             left=_expr(node.left, toks, classes),
@@ -627,7 +627,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
         if isinstance(node.func, ast.Attribute):
             if node.keywords:
                 raise SquealError(
-                    f"{node.lineno}: именованные аргументы метода не поддержаны"
+                    f"{node.lineno}: named method arguments are not supported"
                 )
             return ir.Method(
                 receiver=_expr(node.func.value, toks, classes),
@@ -638,22 +638,22 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
         if isinstance(node.func, ast.Name) and node.func.id == "print":
             if node.keywords:
                 raise SquealError(
-                    f"{node.lineno}: print принимает только позиционный аргумент (print(x))"
+                    f"{node.lineno}: print takes a single positional argument (print(x))"
                 )
             if len(node.args) != 1:
                 raise SquealError(
-                    f"{node.lineno}: print принимает ровно один аргумент, "
-                    f"получено {len(node.args)}"
+                    f"{node.lineno}: print takes exactly one argument, "
+                    f"got {len(node.args)}"
                 )
             return ir.Print(value=_expr(node.args[0], toks, classes), line=node.lineno)
         if isinstance(node.func, ast.Name) and node.func.id in classes:
             if node.keywords:
-                raise SquealError(f"{node.lineno}: именованные аргументы конструктора не поддержаны")
+                raise SquealError(f"{node.lineno}: named constructor arguments are not supported")
             fields = classes[node.func.id]
             if len(node.args) != len(fields):
                 raise SquealError(
-                    f"{node.lineno}: конструктор {node.func.id} ожидает {len(fields)} аргументов, "
-                    f"получено {len(node.args)}"
+                    f"{node.lineno}: constructor {node.func.id} expects {len(fields)} arguments, "
+                    f"got {len(node.args)}"
                 )
             tag = snake_case(node.func.id)
             return ir.Tuple(
@@ -662,9 +662,9 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
                 line=node.lineno,
             )
         if not isinstance(node.func, ast.Name):
-            raise SquealError(f"{node.lineno}: вызов по атрибуту не поддержан")
+            raise SquealError(f"{node.lineno}: call through an attribute is not supported")
         if node.keywords:
-            raise SquealError(f"{node.lineno}: именованные аргументы не поддержаны")
+            raise SquealError(f"{node.lineno}: named arguments are not supported")
         return ir.Call(
             name=node.func.id,
             args=tuple(_expr(a, toks, classes) for a in node.args),
@@ -674,7 +674,7 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
     if isinstance(node, ast.Lambda):
         a = node.args
         if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
-            raise SquealError(f"{node.lineno}: параметры лямбды со значениями не поддержаны")
+            raise SquealError(f"{node.lineno}: lambda parameters with defaults are not supported")
         return ir.Lambda(
             params=tuple(arg.arg for arg in a.args),
             body=_expr(node.body, toks, classes),
@@ -695,11 +695,11 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
             line=node.lineno,
         )
     if isinstance(node, ast.SetComp):
-        raise SquealError(f"{node.lineno}: множеств в squeal нет — set comprehension не поддержан")
+        raise SquealError(f"{node.lineno}: squeal has no sets — set comprehension is not supported")
     if isinstance(node, ast.GeneratorExp):
-        raise SquealError(f"{node.lineno}: generator-выражения позже")
+        raise SquealError(f"{node.lineno}: generator expressions are not supported yet")
 
-    raise SquealError(f"{node.lineno}: неподдерживаемое выражение {type(node).__name__}")
+    raise SquealError(f"{node.lineno}: unsupported expression {type(node).__name__}")
 
 
 def _is_items_call(node: ast.AST) -> bool:
@@ -716,7 +716,7 @@ def _comprehensions(generators: list, toks: dict, classes: dict) -> tuple:
     quals = []
     for c in generators:
         if c.is_async:
-            raise SquealError(f"{c.target.lineno}: async-генератор не поддержан")
+            raise SquealError(f"{c.target.lineno}: async generator is not supported")
         target = _target(c.target)
         if (
             _is_items_call(c.iter)

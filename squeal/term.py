@@ -84,4 +84,4 @@ def term_to_erlang(term) -> str:
         return "{" + ",".join(term_to_erlang(x) for x in term) + "}"
     if isinstance(term, list):
         return "[" + ",".join(term_to_erlang(x) for x in term) + "]"
-    raise TypeError(f"не Erlang-терм: {term!r}")
+    raise TypeError(f"not an Erlang term: {term!r}")

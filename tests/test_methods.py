@@ -99,11 +99,11 @@ def test_count_dispatches_on_list_and_tuple():
 
 
 def test_unknown_method_is_compile_error():
-    with pytest.raises(SquealError, match="метод"):
+    with pytest.raises(SquealError, match="method"):
         compile_source("def m(s):\n    s.foo()\n", "src/m.ee", "m")
-    with pytest.raises(SquealError, match="метод"):
+    with pytest.raises(SquealError, match="method"):
         compile_source("def m(s):\n    s.get()\n", "src/m.ee", "m")
-    with pytest.raises(SquealError, match="метод"):
+    with pytest.raises(SquealError, match="method"):
         compile_source("def m(s):\n    s.lower(1)\n", "src/m.ee", "m")
 
 

@@ -75,15 +75,15 @@ class Session:
     def _def(self, node: ast.FunctionDef, toks: dict) -> ir.Def:
         if node.name in backend.RESERVED_NAMES:
             raise SquealError(
-                f"{node.lineno}: имя {node.name!r} зарезервировано компилятором"
+                f"{node.lineno}: name {node.name!r} is reserved by the compiler"
             )
         a = node.args
         if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
-            raise SquealError(f"{node.lineno}: параметры со значениями/vararg не поддержаны")
+            raise SquealError(f"{node.lineno}: parameters with defaults/vararg are not supported")
         params = tuple(arg.arg for arg in a.args)
         body = frontend._statements(node.body, toks, self.classes)
         if not body:
-            raise SquealError(f"{node.lineno}: функция {node.name} без значения")
+            raise SquealError(f"{node.lineno}: function {node.name} has no value")
         return ir.Def(
             name=node.name,
             params=params,
@@ -95,23 +95,23 @@ class Session:
     def _class(self, node: ast.ClassDef, seen: set[str]) -> None:
         if node.decorator_list:
             raise SquealError(
-                f"{node.lineno}: декораторы поддержаны только над функциями"
+                f"{node.lineno}: decorators are only supported on functions"
             )
         fields = frontend._class_fields(node)
         base = frontend._base_name(node)
         if base != "StartingWithAtom":
             raise SquealError(
-                f"{node.lineno}: базовый класс {base!r} — поддержан только StartingWithAtom"
+                f"{node.lineno}: base class {base!r} is not supported — only StartingWithAtom"
             )
         if node.name in seen:
             raise SquealError(
-                f"{node.lineno}: повторное определение класса {node.name} в одной ячейке"
+                f"{node.lineno}: duplicate definition of class {node.name} in one cell"
             )
         tag = frontend.snake_case(node.name)
         for other in self.classes:
             if other != node.name and frontend.snake_case(other) == tag:
                 raise SquealError(
-                    f"{node.lineno}: классы {node.name} и {other} дают один тег {tag!r}"
+                    f"{node.lineno}: classes {node.name} and {other} produce the same tag {tag!r}"
                 )
         seen.add(node.name)
         # переопределение между ячейками разрешено: повторный запуск клетки — не ошибка
@@ -119,14 +119,14 @@ class Session:
 
     def _import(self, node: ast.stmt) -> None:
         if isinstance(node, ast.Import):
-            raise SquealError(f"{node.lineno}: import X — только from X import …")
+            raise SquealError(f"{node.lineno}: plain import X is not supported — use from X import …")
         if node.level != 0:
-            raise SquealError(f"{node.lineno}: относительные импорты не поддержаны")
+            raise SquealError(f"{node.lineno}: relative imports are not supported")
         if not node.module:
-            raise SquealError(f"{node.lineno}: безымянный import")
+            raise SquealError(f"{node.lineno}: import without a module name")
         for alias in node.names:
             if alias.name == "*":
-                raise SquealError(f"{node.lineno}: import * не поддержан")
+                raise SquealError(f"{node.lineno}: import * is not supported")
             self.imports[alias.asname or alias.name] = (
                 node.module.replace(".", "@"),
                 alias.name,

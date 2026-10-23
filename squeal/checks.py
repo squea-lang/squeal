@@ -13,10 +13,10 @@ def check(module: Module) -> None:
     seen = set()
     for function in module.functions:
         if function.name in RESERVED_NAMES:
-            raise SquealError(f"имя {function.name!r} зарезервировано компилятором")
+            raise SquealError(f"name {function.name!r} is reserved by the compiler")
         key = (function.name, len(function.params))
         if key in seen:
             raise SquealError(
-                f"повторное определение функции {function.name}/{len(function.params)}"
+                f"duplicate definition of function {function.name}/{len(function.params)}"
             )
         seen.add(key)

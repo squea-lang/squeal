@@ -263,7 +263,7 @@ def test_repl_forward_definition_errors():
     from squeal.errors import SquealError
     with pytest.raises(SquealError) as e:
         compile_cell("def f(x):\n    g(x)\n\ndef g(y):\n    y\n", Session())
-    assert "не определена" in str(e.value)
+    assert "is not defined" in str(e.value)
 
 
 def test_assignment_shadows_definition():
@@ -304,7 +304,7 @@ def test_shell_arity_mismatch_is_clear():
         repl.eval_forms(forms)
         with pytest.raises(SquealError) as e:
             compile_cell("f(1, 2)\n", s)
-        assert "не определена" in str(e.value)
+        assert "is not defined" in str(e.value)
     finally:
         repl.close()
 

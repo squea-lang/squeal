@@ -200,7 +200,7 @@ class _Gen:
     # --- имена переменных ---
 
     def _allocate(self, name: str) -> Atom:
-        """Новое Erlang-имя для привязки.
+        """Новое Erlang-name для привязки.
 
         Счётчик ведётся по базовому Erlang-имени: `N` и `n` маппятся в `N`, поэтому второе
         получает `N@1` (иначе два разных питоновских имени столкнулись бы).
@@ -221,7 +221,7 @@ class _Gen:
         return new
 
     def _bind_def(self, name: str, arity: int) -> Atom:
-        """Определение функции: имя различается по арности (как в Erlang/Gleam)."""
+        """Определение функции: name различается по арности (как в Erlang/Gleam)."""
         new = self._allocate(name)
         self._defs[(name, arity)] = new
         self._scope[name] = new  # функция — тоже значение (последняя арность)
@@ -230,7 +230,7 @@ class _Gen:
     def _resolve(self, name: str, line: int) -> Atom:
         erlang = self._scope.get(name)
         if erlang is None:
-            raise SquealError(f"{line}: имя {name!r} не определено")
+            raise SquealError(f"{line}: name {name!r} is not defined")
         return erlang
 
     # --- модуль и функции ---
@@ -367,8 +367,8 @@ class _Gen:
         """Форма значения-декоратора (fun арности 1)."""
         line = dec.line
         if isinstance(dec, ir.FunRef):
-            # имя в scope (вложенная функция/переменная) — вызов через переменную;
-            # импортированное имя — remote fun; иначе это функция модуля
+            # name в scope (вложенная функция/переменная) — вызов через переменную;
+            # импортированное name — remote fun; иначе это функция модуля
             if shell or dec.name in self._scope:
                 return _var(line, self._resolve(dec.name, line))
             if dec.name in self._imports:
@@ -379,10 +379,10 @@ class _Gen:
             other = [a for (n, a) in sorted(self._module_defs) if n == dec.name]
             if other:
                 raise SquealError(
-                    f"{line}: декоратор {dec.name} должен принимать 1 аргумент "
-                    f"(определена как {dec.name}/{other[0]})"
+                    f"{line}: decorator {dec.name} must take 1 argument "
+                    f"(defined as {dec.name}/{other[0]})"
                 )
-            raise SquealError(f"{line}: декоратор {dec.name}/1 не определён")
+            raise SquealError(f"{line}: decorator {dec.name}/1 is not defined")
         if isinstance(dec, ir.RemoteFunRef):
             return self._remote_fun(line, dec.module, dec.name)
         if isinstance(dec, ir.Call):
@@ -391,7 +391,7 @@ class _Gen:
             return _remote_call(
                 line, dec.module, dec.name, [self.expr_form(a) for a in dec.args]
             )
-        raise SquealError(f"{line}: декоратор не поддержан: {dec!r}")
+        raise SquealError(f"{line}: unsupported decorator: {dec!r}")
 
     @staticmethod
     def _remote_fun(line: int, module: str, name: str) -> tuple:
@@ -495,7 +495,7 @@ class _Gen:
 
     def _branch_tail_body(self, stmts, line):
         if not stmts:
-            raise SquealError(f"{line}: ветка без значения (пустой блок)")
+            raise SquealError(f"{line}: branch has no value (empty block)")
         body = [self.stmt_form(s) for s in stmts[:-1]]
         last = stmts[-1]
         if isinstance(last, (ir.If, ir.Match)):
@@ -505,7 +505,7 @@ class _Gen:
         elif isinstance(last, ir.Expr):
             body.append(self.expr_form(last.value))
         else:
-            raise SquealError(f"{last.line}: хвост ветки должен быть выражением")
+            raise SquealError(f"{last.line}: branch tail must be an expression")
         return body
 
     def _case_value_only(self, node) -> tuple:
@@ -551,7 +551,7 @@ class _Gen:
         if isinstance(stmt, (ir.If, ir.Match)):
             target, case = self._case_value(stmt)
             return (Atom("match"), stmt.line, _var(stmt.line, self._bind(target)), case)
-        raise SquealError(f"нечем генерировать оператор: {stmt!r}")
+        raise SquealError(f"cannot generate a statement for: {stmt!r}")
 
     def def_form(self, stmt: ir.Def, name: Atom) -> tuple:
         """`F = fun F(X) -> … end` — именованный fun, чтобы работала рекурсия."""
@@ -578,8 +578,8 @@ class _Gen:
         """Вложенный `def` — привязка имени к named_fun (рекурсия) + декораторы сразу."""
         line = stmt.line
         if stmt.name in RESERVED_NAMES:
-            raise SquealError(f"{line}: имя {stmt.name!r} зарезервировано компилятором")
-        self._drop_defs(stmt.name)  # имя модульной функции/клетки перекрыто переменной
+            raise SquealError(f"{line}: name {stmt.name!r} is reserved by the compiler")
+        self._drop_defs(stmt.name)  # name модульной функции/клетки перекрыто переменной
         name = self._bind(stmt.name)
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
@@ -631,7 +631,7 @@ class _Gen:
                     clauses.append((Atom("clause"), c.line, [p], guard, c_body + [c_result]))
             self._check_target(node.line, targets)
             return targets[0], (Atom("case"), node.line, subject, clauses)
-        raise SquealError(f"не ветвление: {node!r}")
+        raise SquealError(f"not a branch: {node!r}")
 
     def _branch(self, stmts, line):
         saved_scope = dict(self._scope)
@@ -645,7 +645,7 @@ class _Gen:
 
     def _branch_body(self, stmts, line):
         if not stmts:
-            raise SquealError(f"{line}: ветка без значения (пустой блок)")
+            raise SquealError(f"{line}: branch has no value (empty block)")
         body = []
         for stmt in stmts[:-1]:
             body.append(self.stmt_form(stmt))
@@ -659,13 +659,13 @@ class _Gen:
             target, result = last.name, self.stmt_form(last)
         else:
             raise SquealError(
-                f"{last.line}: ветка должна заканчиваться присваиванием той же переменной"
+                f"{last.line}: branch must end with an assignment to the same variable"
             )
         return target, body, result
 
     def _check_target(self, line, targets):
         if len(set(targets)) != 1:
-            raise SquealError(f"{line}: ветки присваивают разные переменные: {targets}")
+            raise SquealError(f"{line}: branches assign different variables: {targets}")
 
     def _has_bindings(self, pat):
         if isinstance(pat, (ir.PName, ir.PStar)):
@@ -682,7 +682,7 @@ class _Gen:
         if isinstance(pattern, ir.OrPattern):
             if any(self._has_bindings(p) for p in pattern.patterns):
                 raise SquealError(
-                    f"{pattern.line}: or-образец не может связывать переменные"
+                    f"{pattern.line}: or-pattern cannot bind variables"
                 )
             out = []
             for p in pattern.patterns:
@@ -707,7 +707,7 @@ class _Gen:
             return (Atom("map"), pat.line, fields)
         if isinstance(pat, (ir.Int, ir.Float, ir.String, ir.AtomLit, ir.Bool, ir.Nil)):
             return self.expr_form(pat)
-        raise SquealError(f"нечем генерировать образец: {pat!r}")
+        raise SquealError(f"cannot generate a pattern for: {pat!r}")
 
     def _list_pattern(self, pat: ir.PList) -> tuple:
         line = pat.line
@@ -775,7 +775,7 @@ class _Gen:
                     f"{expr.name}/{a}" for (nm, a) in sorted(self._defs) if nm == expr.name
                 )
                 raise SquealError(
-                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена (есть {have})"
+                    f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined (have: {have})"
                 )
             elif expr.name in self._scope:
                 callee = _var(expr.line, self._resolve(expr.name, expr.line))
@@ -790,13 +790,13 @@ class _Gen:
             elif self._shell_mode:
                 hint = ""
                 if key in self._later_defs:
-                    hint = " (определена ниже в этой клетке — переставьте её выше)"
+                    hint = " (defined below in this cell — move it up)"
                 raise SquealError(
-                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена{hint}"
+                    f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined{hint}"
                 )
             elif key not in self._module_defs:
                 raise SquealError(
-                    f"{expr.line}: функция {expr.name}/{len(expr.args)} не определена"
+                    f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined"
                 )
             else:
                 callee = (Atom("atom"), expr.line, Atom(expr.name))
@@ -820,7 +820,7 @@ class _Gen:
                 expr.line, "maps", "merge",
                 [self.expr_form(expr.left), self.expr_form(expr.right)],
             )
-        raise SquealError(f"нечем генерировать выражение: {expr!r}")
+        raise SquealError(f"cannot generate an expression for: {expr!r}")
 
     def method_form(self, expr: ir.Method) -> tuple:
         """Метод stdlib: диспетчеризация по имени и типу получателя в рантайме."""
@@ -865,11 +865,11 @@ class _Gen:
             return self._as_binary(line, recv, name, lambda v: build(line, v, args))
 
         raise SquealError(
-            f"{line}: метод {name}/{arity} не поддержан (только стандартная библиотека)"
+            f"{line}: method {name}/{arity} is not supported (standard library only)"
         )
 
     def _fresh(self, line: int, base: str) -> tuple:
-        """Свежее имя привязки (`@` — чтобы не столкнуться с пользовательским)."""
+        """Свежее name привязки (`@` — чтобы не столкнуться с пользовательским)."""
         self._temp += 1
         return (Atom("var"), line, Atom(f"{base}{self._temp}"))
 
@@ -964,7 +964,7 @@ class _Gen:
             return (Atom("op"), expr.line, Atom("not"), operand)
         if expr.op == "UAdd":
             return operand
-        raise SquealError(f"унарный оператор {expr.op} не поддержан")
+        raise SquealError(f"unary operator {expr.op} is not supported")
 
     def _binop(self, expr: ir.BinOp) -> tuple:
         line = expr.line
@@ -990,7 +990,7 @@ class _Gen:
             return self._helper_call(
                 line, "_squeal_pow", [self.expr_form(expr.left), self.expr_form(expr.right)]
             )
-        raise SquealError(f"бинарный оператор {expr.op} не поддержан")
+        raise SquealError(f"binary operator {expr.op} is not supported")
 
     def _boolop(self, expr: ir.BoolOp) -> tuple:
         op = "andalso" if expr.op == "And" else "orelse"
@@ -1063,7 +1063,7 @@ class _Gen:
             elif isinstance(q, ir.Filter):
                 out.append(self.expr_form(q.expr))
             else:
-                raise SquealError(f"нечем генерировать квалификатор: {q!r}")
+                raise SquealError(f"cannot generate a qualifier for: {q!r}")
         return out
 
     def iter_helper(self) -> tuple:

@@ -29,7 +29,7 @@ class ErlangRepl:
         while True:
             line = self.proc.stdout.readline()
             if not line:
-                raise RuntimeError("repl завершился")
+                raise RuntimeError("repl process exited")
             if line.startswith("OUT "):
                 # напечатанное клеткой уходит в stdout до значения
                 sys.stdout.write(base64.b64decode(line[4:]).decode("utf-8"))
@@ -47,13 +47,13 @@ class ErlangRepl:
             return "ok", line[3:]
         if line.startswith("ERR "):
             return "error", line[4:]
-        raise RuntimeError(f"неожиданный ответ repl: {line!r}")
+        raise RuntimeError(f"unexpected repl reply: {line!r}")
 
     def pp(self, form) -> str:
         """Erlang-исходник формы (через erl_pp), для печати эквивалента."""
         line = self._send((Atom("$pp"), form))
         if not line.startswith("PP "):
-            raise RuntimeError(f"неожиданный ответ repl: {line!r}")
+            raise RuntimeError(f"unexpected repl reply: {line!r}")
         return base64.b64decode(line[3:]).decode("utf-8")
 
     def close(self) -> None:
