@@ -202,6 +202,17 @@ class Def:
 
 
 @dataclass(frozen=True)
+class NestedDef:
+    """`def f(x): …` внутри тела — вложенная функция: fun, привязанный к имени."""
+
+    name: str
+    params: tuple
+    statements: tuple
+    line: int
+    decorators: tuple = ()
+
+
+@dataclass(frozen=True)
 class Print:
     """``print(x)`` — встроенная печать в stdout, возвращает nil."""
 

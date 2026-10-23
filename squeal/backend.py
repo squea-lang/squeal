@@ -370,7 +370,9 @@ class _Gen:
         """Форма значения-декоратора (fun арности 1)."""
         line = dec.line
         if isinstance(dec, ir.FunRef):
-            if shell:
+            # имя в scope (вложенная функция/переменная) — вызов через переменную;
+            # иначе в модуле это функция модуля
+            if shell or dec.name in self._scope:
                 return _var(line, self._resolve(dec.name, line))
             return (Atom("fun"), line, (Atom("function"), Atom(dec.name), 1))
         if isinstance(dec, ir.RemoteFunRef):
@@ -440,6 +442,8 @@ class _Gen:
         """Имя, которое ветка связывает в хвосте, или None."""
         if isinstance(stmt, ir.Assign) and isinstance(stmt.target, ir.PName):
             return stmt.target.name
+        if isinstance(stmt, ir.NestedDef):
+            return stmt.name  # вложенный def тоже связывает имя
         if isinstance(stmt, ir.If):
             return self._tail_assign_target([stmt.then_body, stmt.else_body])
         if isinstance(stmt, ir.Match):
@@ -483,7 +487,7 @@ class _Gen:
         last = stmts[-1]
         if isinstance(last, (ir.If, ir.Match)):
             body.append(self._case_value_only(last))
-        elif isinstance(last, ir.Assign):
+        elif isinstance(last, (ir.Assign, ir.NestedDef)):
             body.append(self.stmt_form(last))
         elif isinstance(last, ir.Expr):
             body.append(self.expr_form(last.value))
@@ -529,6 +533,8 @@ class _Gen:
             return self.expr_form(stmt.value)
         if isinstance(stmt, ir.Def):
             return self.def_form(stmt, self._bind_def(stmt.name, len(stmt.params)))
+        if isinstance(stmt, ir.NestedDef):
+            return self._nested_def_form(stmt)
         if isinstance(stmt, (ir.If, ir.Match)):
             target, case = self._case_value(stmt)
             return (Atom("match"), stmt.line, _var(stmt.line, self._bind(target)), case)
@@ -554,6 +560,33 @@ class _Gen:
             [(Atom("clause"), line, param_forms, [], body)],
         )
         return (Atom("match"), line, _var(line, name), fun)
+
+    def _nested_def_form(self, stmt: ir.NestedDef) -> tuple:
+        """Вложенный `def` — привязка имени к named_fun (рекурсия) + декораторы сразу."""
+        line = stmt.line
+        if stmt.name in RESERVED_NAMES:
+            raise SquealError(f"{line}: имя {stmt.name!r} зарезервировано компилятором")
+        self._drop_defs(stmt.name)  # имя модульной функции/клетки перекрыто переменной
+        name = self._bind(stmt.name)
+        saved_scope = dict(self._scope)
+        saved_taken = dict(self._taken)
+        saved_defs = dict(self._defs)
+        param_forms = [_var(line, self._bind(p)) for p in stmt.params]
+        body = [self.stmt_form(s) for s in stmt.statements[:-1]]
+        body.append(self.tail_stmt_form(stmt.statements[-1]))
+        self._scope = saved_scope
+        self._taken = saved_taken
+        self._defs = saved_defs
+        value = (
+            Atom("named_fun"),
+            line,
+            name,
+            [(Atom("clause"), line, param_forms, [], body)],
+        )
+        for dec in reversed(stmt.decorators):
+            value = (Atom("call"), line,
+                     self._decorator_value(dec, shell=self._shell_mode), [value])
+        return (Atom("match"), line, _var(line, name), value)
 
     def _case_value(self, node):
         if isinstance(node, ir.If):
@@ -609,6 +642,8 @@ class _Gen:
             result = self.expr_form(last.value)
         elif isinstance(last, (ir.If, ir.Match)):
             target, result = self._case_value(last)
+        elif isinstance(last, ir.NestedDef):
+            target, result = last.name, self.stmt_form(last)
         else:
             raise SquealError(
                 f"{last.line}: ветка должна заканчиваться присваиванием той же переменной"

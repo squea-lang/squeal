@@ -361,6 +361,25 @@ def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
     )
 
 
+def _nested_def(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.NestedDef:
+    """`def` в теле функции: замыкание-значение, а не функция модуля."""
+    a = node.args
+    if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
+        raise SquealError(
+            f"{node.lineno}: параметры со значениями/vararg пока не поддерживаются"
+        )
+    statements = _statements(node.body, toks, classes)
+    if not statements:
+        raise SquealError(f"{node.lineno}: функция {node.name} без значения")
+    return ir.NestedDef(
+        name=node.name,
+        params=tuple(arg.arg for arg in a.args),
+        statements=statements,
+        line=node.lineno,
+        decorators=_decorators(node, toks, classes),
+    )
+
+
 def _statements(body: list, toks: dict, classes: dict) -> tuple:
     out = []
     for stmt in body:
@@ -371,6 +390,8 @@ def _statements(body: list, toks: dict, classes: dict) -> tuple:
 
 
 def _statement(node: ast.stmt, toks: dict, classes: dict):
+    if isinstance(node, ast.FunctionDef):
+        return _nested_def(node, toks, classes)
     if isinstance(node, ast.Assign):
         if len(node.targets) != 1:
             raise SquealError(f"{node.lineno}: цепочное присваивание a = b = … не поддержано")
