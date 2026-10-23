@@ -12,7 +12,8 @@ from .errors import SquealError
 from .term import Atom
 
 RESERVED_NAMES = frozenset({
-    "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load",
+    "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load", "print",
+    "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -184,6 +185,7 @@ class _Gen:
         self._used_iter = False
         self._used_mod = False
         self._used_floordiv = False
+        self._used_print = False
         self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
@@ -273,6 +275,8 @@ class _Gen:
             forms.append(self.mod_helper())
         if self._used_floordiv:
             forms.append(self.floordiv_helper())
+        if self._used_print:
+            forms.extend(self.print_helpers())
         return forms
 
     def function_forms(self, function: ir.Function) -> list:
@@ -753,6 +757,12 @@ class _Gen:
             return self._lambda_form(expr)
         if isinstance(expr, ir.Method):
             return self.method_form(expr)
+
+        if isinstance(expr, ir.Print):
+            self._used_print = True
+            return self._helper_call(
+                expr.line, "squeal_print", [self.expr_form(expr.value)]
+            )
         if isinstance(expr, ir.ListComp):
             return self._listcomp_form(expr)
         if isinstance(expr, ir.DictComp):
@@ -996,6 +1006,93 @@ class _Gen:
                 (Atom("clause"), line, [l], [], [l]),
             ],
         )
+
+    def print_helpers(self) -> list:
+        """squeal_print/1 + squeal_str/1 (+ tuple/map): питоновское представление для print."""
+        line = 0
+
+        def call(name, args):
+            return _local_call(line, name, args)
+
+        def str_(form):
+            return call("squeal_str", [form])
+
+        def is_(kind, var):
+            return [[_remote_call(line, "erlang", kind, [var])]]
+
+        def clause(pattern, guards, body):
+            return (Atom("clause"), line, [pattern], guards, body)
+
+        def char(code):
+            return (Atom("integer"), line, code)
+
+        def joined(items):
+            return _remote_call(line, "lists", "join", [_bin_literal(line, ", "), items])
+
+        def each(var, source):
+            return (Atom("lc"), line, str_(var),
+                    [(Atom("generate"), line, var, source)])
+
+        b, a, i, f, l, t, m, x = (
+            _var(line, name) for name in ("B", "A", "I", "F", "L", "T", "M", "X")
+        )
+        e = _var(line, "E")
+
+        str_fn = (Atom("function"), line, Atom("squeal_str"), 1, [
+            clause(b, is_("is_binary", b), [b]),
+            clause(a, is_("is_atom", a),
+                   [_remote_call(line, "erlang", "atom_to_binary", [a, _atom(line, "utf8")])]),
+            clause(i, is_("is_integer", i),
+                   [_remote_call(line, "erlang", "integer_to_binary", [i])]),
+            clause(f, is_("is_float", f),
+                   [_remote_call(line, "erlang", "float_to_binary",
+                                 [f, _list_expr(line, [_atom(line, "short")])])]),
+            clause(l, is_("is_list", l),
+                   [_list_expr(line, [char(ord("[")), joined(each(e, l)), char(ord("]"))])]),
+            clause(t, is_("is_tuple", t),
+                   [call("squeal_str_tuple",
+                         [_remote_call(line, "erlang", "tuple_to_list", [t])])]),
+            clause(m, is_("is_map", m),
+                   [call("squeal_str_map",
+                         [_remote_call(line, "lists", "keysort",
+                                       [_int(line, 1),
+                                        _remote_call(line, "maps", "to_list", [m])])])]),
+            clause(x, [], [_remote_call(line, "io_lib", "format",
+                                        [(Atom("string"), line, "~p"),
+                                        _list_expr(line, [x])])]),
+        ])
+
+        one, items = _var(line, "One"), _var(line, "Items")
+        tuple_fn = (Atom("function"), line, Atom("squeal_str_tuple"), 1, [
+            clause((Atom("nil"), line), [], [_bin_literal(line, "()")]),
+            clause((Atom("cons"), line, one, (Atom("nil"), line)), [],
+                   [_list_expr(line, [char(ord("(")), str_(one), _bin_literal(line, ",)")])]),
+            clause(items, [],
+                   [_list_expr(line, [char(ord("(")), joined(each(e, items)), char(ord(")"))])]),
+        ])
+
+        pairs, k, v = _var(line, "Pairs"), _var(line, "K"), _var(line, "V")
+        pair = _list_expr(line, [str_(k), _bin_literal(line, ": "), str_(v)])
+        pair_gen = (Atom("generate"), line, (Atom("tuple"), line, [k, v]), pairs)
+        map_fn = (Atom("function"), line, Atom("squeal_str_map"), 1, [
+            clause((Atom("nil"), line), [], [_bin_literal(line, "{}")]),
+            clause(pairs, [], [
+                _list_expr(line, [char(ord("{")),
+                                  joined((Atom("lc"), line, pair, [pair_gen])),
+                                  char(ord("}"))]),
+            ]),
+        ])
+
+        shown = _var(line, "X")
+        print_fn = (Atom("function"), line, Atom("squeal_print"), 1, [
+            clause(shown, [], [
+                _remote_call(line, "io", "format",
+                             [(Atom("string"), line, "~ts~n"),
+                              _list_expr(line, [str_(shown)])]),
+                _atom(line, "nil"),
+            ]),
+        ])
+        return [print_fn, str_fn, tuple_fn, map_fn]
 
     def _num_helper(self, name: str, line: int, int_body, float_body) -> tuple:
         a = _var(line, "A")

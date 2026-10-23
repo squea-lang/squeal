@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import pathlib
 import subprocess
+import sys
 
 from .term import Atom, term_to_erlang
 
@@ -25,13 +26,22 @@ class ErlangRepl:
     def _send(self, term) -> str:
         self.proc.stdin.write(term_to_erlang(term) + ".\n")
         self.proc.stdin.flush()
-        line = self.proc.stdout.readline()
-        if not line:
-            raise RuntimeError("repl завершился")
-        return line.rstrip("\n")
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                raise RuntimeError("repl завершился")
+            if line.startswith("OUT "):
+                # напечатанное клеткой уходит в stdout до значения
+                sys.stdout.write(base64.b64decode(line[4:]).decode("utf-8"))
+                sys.stdout.flush()
+                continue
+            return line.rstrip("\n")
 
     def eval_forms(self, forms: list) -> tuple[str, str]:
-        """Отправляет список форм, возвращает ("ok" | "error", текст значения/ошибки)."""
+        """Отправляет список форм, возвращает ("ok" | "error", текст значения/ошибки).
+
+        Напечатанное `print` выводится в stdout до возврата значения.
+        """
         line = self._send(forms)
         if line.startswith("OK "):
             return "ok", line[3:]

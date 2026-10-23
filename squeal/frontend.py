@@ -614,6 +614,17 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
                 args=tuple(_expr(a, toks, classes) for a in node.args),
                 line=node.lineno,
             )
+        if isinstance(node.func, ast.Name) and node.func.id == "print":
+            if node.keywords:
+                raise SquealError(
+                    f"{node.lineno}: print принимает только позиционный аргумент (print(x))"
+                )
+            if len(node.args) != 1:
+                raise SquealError(
+                    f"{node.lineno}: print принимает ровно один аргумент, "
+                    f"получено {len(node.args)}"
+                )
+            return ir.Print(value=_expr(node.args[0], toks, classes), line=node.lineno)
         if isinstance(node.func, ast.Name) and node.func.id in classes:
             if node.keywords:
                 raise SquealError(f"{node.lineno}: именованные аргументы конструктора не поддержаны")

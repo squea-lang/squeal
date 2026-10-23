@@ -34,6 +34,7 @@ parent: squeal-architecture
   встроенные `Ok`/`Error` (прелюдия) — `{ok, …}`/`{error, …}`.
   `lambda` → IR; включения list/dict (все генераторы через `squeal_iter`, `for k, v in m.items()` → map-генератор,
   получатель `.items()` может быть любым выражением); вызов метода → `ir.Method` (имя, арность, получатель);
+  `print(x)` → `ir.Print` (ровно один аргумент, без именованных);
   set comprehension и generator-выражения — ошибка. `from a.b.c import f, g as h` — импорты
   (несколько имён, псевдоним `as`); `import *` и `import X` — ошибка.
 - `ir.py` — узлы IR; отделяет бэкенд от Python AST, чтобы фронтенд можно было заменить своим парсером.
@@ -52,6 +53,8 @@ parent: squeal-architecture
   методы stdlib — таблица в бэкенде: `str` → `string:*`/`binary:*` под проверкой `is_binary`,
   `dict` → `maps:*`, `list`/`tuple` → `count` через `case` по `is_list`/`is_tuple` (свежие имена
   привязок `_squeal@…`), неизвестное имя/арность — `SquealError`;
+  `print` → `squeal_print/1` (`io:format("~ts~n")`), хелперы `squeal_str/1`, `squeal_str_tuple/1`,
+  `squeal_str_map/1` — питоновское представление значения, генерируются по требованию;
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).
   импорт → `{call, {remote, a@b@c, f}}` (имя из scope имеет приоритет над импортом).
 - `term.py` — `Atom` и печать термов в текст для `file:consult`.
@@ -59,9 +62,11 @@ parent: squeal-architecture
 - `compiler.py` — конвейер (`compile_source`, `build`); `__main__.py` — командная строка.
 - `session.py` — shell-режим: клетка → формы; session хранит маппинг имён/классы/импорты.
 - `repl.py` + `repl.escript` — persistent Erlang-REPL (`erl_eval:exprs`, bindings живут;
-  `'$pp'` — `erl_pp` формы для печати эквивалента).
+  `'$pp'` — `erl_pp` формы для печати эквивалента; вывод `print` копится в process dictionary и
+  уходит фреймом `OUT <base64>` до строки `OK …`, клиент печатает его в stdout).
 - `notebook.py` — ipykernel-хук (`pre/post_run_cell` + `ast_transformer` в `pass` + input-трансформер
-  для образцов-присваиваний); перед результатом включений печатает `erl: …`.
+  для образцов-присваиваний); перед результатом включений печатает `erl: …`; значение клетки `nil`
+  не печатает.
 
 ## Границы и ограничения
 

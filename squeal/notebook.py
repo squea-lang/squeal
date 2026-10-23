@@ -80,7 +80,7 @@ def load_ipython_extension(ipython) -> None:
                     print(f"erl: {compact(state['repl'].pp(comp))}")
             status, value = state["repl"].eval_forms(forms)
             if status == "ok":
-                if not suppress:
+                if not suppress and value != "nil":
                     print(value)
             else:
                 sys.stderr.write(f"squeal runtime error: {value}\n")

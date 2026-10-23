@@ -202,6 +202,14 @@ class Def:
 
 
 @dataclass(frozen=True)
+class Print:
+    """``print(x)`` — встроенная печать в stdout, возвращает nil."""
+
+    value: object
+    line: int
+
+
+@dataclass(frozen=True)
 class Method:
     """Вызов метода стандартной библиотеки: `recv.name(args)`."""
 
