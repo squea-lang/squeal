@@ -72,7 +72,16 @@ def test_str_method_checks_binary_type():
         Atom("remote"), 2,
         (Atom("atom"), 2, Atom("string")), (Atom("atom"), 2, Atom("lowercase")),
     )
-    assert fail[2] == [(Atom("var"), 2, Atom("_"))]
+    # ветка мимо проверки бросает {bad_receiver, метод, значение}
+    assert fail[2] == [(Atom("var"), 2, Atom("_squeal@r2"))]
+    error = fail[4][0]
+    assert error[2] == (Atom("remote"), 2,
+                        (Atom("atom"), 2, Atom("erlang")), (Atom("atom"), 2, Atom("error")))
+    assert error[3][0][2] == [
+        (Atom("atom"), 2, Atom("bad_receiver")),
+        (Atom("atom"), 2, Atom("lower")),
+        (Atom("var"), 2, Atom("_squeal@r2")),
+    ]
 
 
 def test_endswith_compares_tail():
@@ -166,7 +175,8 @@ def test_methods_semantics_in_erl():
         capture_output=True, text=True, check=True,
     )
     assert out.stdout.strip().split("|")[:-1] == [expected for _, expected in cases]
-    assert "badarg" in out.stdout.rsplit("|", 1)[-1]
+    # неверный получатель называет метод и значение
+    assert "{bad_receiver,lower," in out.stdout.rsplit("|", 1)[-1]
 
 
 def test_items_in_comprehension_still_works():

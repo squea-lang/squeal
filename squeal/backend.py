@@ -835,10 +835,12 @@ class _Gen:
 
         # str (binary): string:* принимают и chardata — проверяем is_binary
         if name == "splitlines" and arity == 0:
-            return self._as_binary(line, recv, lambda v: self._splitlines_form(line, v))
+            return self._as_binary(
+                line, recv, name, lambda v: self._splitlines_form(line, v)
+            )
         build = _STR_METHODS.get((name, arity))
         if build is not None:
-            return self._as_binary(line, recv, lambda v: build(line, v, args))
+            return self._as_binary(line, recv, name, lambda v: build(line, v, args))
 
         raise SquealError(
             f"{line}: метод {name}/{arity} не поддержан (только стандартная библиотека)"
@@ -849,13 +851,22 @@ class _Gen:
         self._temp += 1
         return (Atom("var"), line, Atom(f"{base}{self._temp}"))
 
-    def _as_binary(self, line, recv, build) -> tuple:
+    def _as_binary(self, line, recv, name, build) -> tuple:
         binder = self._fresh(line, "_squeal@m")
+        other = self._fresh(line, "_squeal@r")
         check = [[_remote_call(line, "erlang", "is_binary", [binder])]]
-        fail = _remote_call(line, "erlang", "error", [_atom(line, "badarg")])
+        fail = self._bad_receiver(line, name, other)
         return (Atom("case"), line, recv, [
             (Atom("clause"), line, [binder], check, [build(binder)]),
-            (Atom("clause"), line, [_var(line, "_")], [], [fail]),
+            (Atom("clause"), line, [other], [], [fail]),
+        ])
+
+    @staticmethod
+    def _bad_receiver(line, name, value) -> tuple:
+        """`erlang:error({bad_receiver, метод, значение})` — причина падения названа."""
+        return _remote_call(line, "erlang", "error", [
+            (Atom("tuple"), line,
+             [_atom(line, "bad_receiver"), _atom(line, name), value]),
         ])
 
     def _splitlines_form(self, line, v) -> tuple:
@@ -885,6 +896,7 @@ class _Gen:
         e = self._fresh(line, "_squeal@e")
         l = self._fresh(line, "_squeal@l")
         t = self._fresh(line, "_squeal@t")
+        other = self._fresh(line, "_squeal@r")
 
         def count_of(source):
             comp = (
@@ -898,8 +910,7 @@ class _Gen:
              [count_of(l)]),
             (Atom("clause"), line, [t], [[_remote_call(line, "erlang", "is_tuple", [t])]],
              [count_of(_remote_call(line, "erlang", "tuple_to_list", [t]))]),
-            (Atom("clause"), line, [_var(line, "_")], [],
-             [_remote_call(line, "erlang", "error", [_atom(line, "badarg")])]),
+            (Atom("clause"), line, [other], [], [self._bad_receiver(line, "count", other)]),
         ])
 
     def _list_form(self, expr: ir.List) -> tuple:
