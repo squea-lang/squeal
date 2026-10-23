@@ -1,4 +1,4 @@
-"""Shell-режим и persistent REPL для Jupyter."""
+"""Shell mode and the persistent REPL for Jupyter."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def test_mangling_persists_across_cells():
     forms, _ = compile_cell("x = 1\n", s)
     assert forms[0][2] == ("var", 1, "X")
     forms, _ = compile_cell("x = x + 1\n", s)
-    # второе связывание -> X@1, RHS ссылается на X
+    # the second binding becomes X@1, the RHS still refers to X
     assert forms[0][2] == ("var", 1, "X@1")
 
 
@@ -42,7 +42,7 @@ def test_class_registers_and_erases():
     assert forms == []
     assert "T" in s.classes
     forms, _ = compile_cell("T(1)\n", s)
-    assert forms[0][0] == "tuple"  # конструктор инлайнится
+    assert forms[0][0] == "tuple"  # the constructor is inlined
 
 
 def test_repl_persistence():
@@ -99,7 +99,7 @@ def test_ipykernel_hook():
         with capture_output() as c2:
             shell.run_cell("x + 1")
         assert c2.stdout.strip() == "2"
-        # Python ничего не выполнил: x нет в Python-пространстве имён
+        # Python ran nothing: x is absent from the Python namespace
         assert "x" not in shell.user_ns
     finally:
         nb.unload_ipython_extension(shell)
@@ -131,7 +131,7 @@ def test_class_redefinition_across_cells_is_allowed():
     s = Session()
     src = "class T(StartingWithAtom):\n    x: int\n"
     assert compile_cell(src, s)[0] == []
-    assert compile_cell(src, s)[0] == []  # повторный запуск клетки — не ошибка
+    assert compile_cell(src, s)[0] == []  # re-running the cell is not an error
 
 
 def test_class_duplicate_within_cell_errors():
@@ -161,10 +161,10 @@ def test_hook_survives_python_syntax_error():
     nb.load_ipython_extension(shell)
     try:
         with capture_output():
-            shell.run_cell("Ok(val) = 1")  # невалидный Python: call = ...
+            shell.run_cell("Ok(val) = 1")  # invalid Python: call = ...
         with capture_output() as c2:
             shell.run_cell("40 + 2")
-        assert c2.stdout.strip() == "42"  # сессия жива после SyntaxError
+        assert c2.stdout.strip() == "42"  # the session survives a SyntaxError
     finally:
         nb.unload_ipython_extension(shell)
         InteractiveShell.clear_instance()
@@ -236,7 +236,7 @@ def test_comprehension_targets_use_local_names():
     s = Session()
     repl = ErlangRepl()
     try:
-        compile_cell("x = 1\nx = x + 1\n", s)           # x -> X, X@1 в сессии
+        compile_cell("x = 1\nx = x + 1\n", s)           # x -> X, X@1 in the session
         forms, _ = compile_cell("[x * 2 for x in [1, 2, 3]]\n", s)
         assert compact(repl.pp(forms[0])) == "[X * 2 || X <- squeal_iter([1, 2, 3])]"
     finally:
@@ -324,7 +324,7 @@ def test_extension_load_is_idempotent_and_unloads():
         nb.load_ipython_extension(shell)
         once = counts()
         nb.load_ipython_extension(shell)
-        assert counts() == once          # повторная загрузка ничего не дублирует
+        assert counts() == once          # reloading does not duplicate anything
         nb.unload_ipython_extension(shell)
         assert counts() == (once[0] - 1, once[1] - 1, once[2] - 1)
     finally:

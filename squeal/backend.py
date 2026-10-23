@@ -200,7 +200,7 @@ class _Gen:
     # --- имена переменных ---
 
     def _allocate(self, name: str) -> Atom:
-        """Новое Erlang-name для привязки.
+        """Новое Erlang-имя для привязки.
 
         Счётчик ведётся по базовому Erlang-имени: `N` и `n` маппятся в `N`, поэтому второе
         получает `N@1` (иначе два разных питоновских имени столкнулись бы).
@@ -221,7 +221,7 @@ class _Gen:
         return new
 
     def _bind_def(self, name: str, arity: int) -> Atom:
-        """Определение функции: name различается по арности (как в Erlang/Gleam)."""
+        """Определение функции: имя различается по арности (как в Erlang/Gleam)."""
         new = self._allocate(name)
         self._defs[(name, arity)] = new
         self._scope[name] = new  # функция — тоже значение (последняя арность)
@@ -367,8 +367,8 @@ class _Gen:
         """Форма значения-декоратора (fun арности 1)."""
         line = dec.line
         if isinstance(dec, ir.FunRef):
-            # name в scope (вложенная функция/переменная) — вызов через переменную;
-            # импортированное name — remote fun; иначе это функция модуля
+            # имя в scope (вложенная функция/переменная) — вызов через переменную;
+            # импортированное имя — remote fun; иначе это функция модуля
             if shell or dec.name in self._scope:
                 return _var(line, self._resolve(dec.name, line))
             if dec.name in self._imports:
@@ -579,7 +579,7 @@ class _Gen:
         line = stmt.line
         if stmt.name in RESERVED_NAMES:
             raise SquealError(f"{line}: name {stmt.name!r} is reserved by the compiler")
-        self._drop_defs(stmt.name)  # name модульной функции/клетки перекрыто переменной
+        self._drop_defs(stmt.name)  # имя модульной функции/клетки перекрыто переменной
         name = self._bind(stmt.name)
         saved_scope = dict(self._scope)
         saved_taken = dict(self._taken)
@@ -869,7 +869,7 @@ class _Gen:
         )
 
     def _fresh(self, line: int, base: str) -> tuple:
-        """Свежее name привязки (`@` — чтобы не столкнуться с пользовательским)."""
+        """Свежее имя привязки (`@` — чтобы не столкнуться с пользовательским)."""
         self._temp += 1
         return (Atom("var"), line, Atom(f"{base}{self._temp}"))
 

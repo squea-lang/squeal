@@ -1,4 +1,4 @@
-"""Встроенная print: формы, проверки, представление значений и вывод в ноутбуке."""
+"""The built-in print: forms, checks, value display and notebook output."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def test_print_in_notebook():
     try:
         with capture_output() as out:
             shell.run_cell('print("hi")')
-        # ни значения клетки (nil), ни лишнего шума
+        # neither the cell value (nil) nor any extra noise
         assert out.stdout.strip() == "hi"
 
         with capture_output() as out:
@@ -136,5 +136,5 @@ def test_print_order_in_repl(capsys):
         assert repl.eval_forms(forms) == ("ok", "nil")
     finally:
         repl.close()
-    # как в Python: переводы строк в конце каждой строки, а не в начале блока
+    # like Python: newlines end each line instead of leading the block
     assert capsys.readouterr().out == "1\n2\n"

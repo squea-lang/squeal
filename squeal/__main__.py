@@ -12,8 +12,8 @@ from .errors import SquealError
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m squeal")
     sub = parser.add_subparsers(dest="command", required=True)
-    b = sub.add_parser("build", help="компилировать дерево src/ в build/dev/erlang")
-    b.add_argument("dir", nargs="?", default=".", help="корень проекта (по умолчанию .)")
+    b = sub.add_parser("build", help="compile the src/ tree into build/dev/erlang")
+    b.add_argument("dir", nargs="?", default=".", help="project root (default: .)")
     args = parser.parse_args(argv)
 
     if args.command == "build":

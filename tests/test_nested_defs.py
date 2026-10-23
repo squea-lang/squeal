@@ -1,4 +1,4 @@
-"""Вложенные `def` в теле функции: fun-значение, рекурсия, декораторы."""
+"""Nested `def` inside a function body: a fun value, recursion, decorators."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _function(source: str, name: str = "m"):
 
 
 def _find(form, pred, out=None) -> list:
-    """Все подформы, удовлетворяющие предикату."""
+    """Every sub-form matching the predicate."""
     out = [] if out is None else out
     if isinstance(form, tuple):
         if pred(form):
@@ -63,10 +63,10 @@ def test_nested_def_is_named_fun():
     assert match[2] == (Atom("var"), 2, Atom("F"))
     fun = match[3]
     assert fun[0] == Atom("named_fun") and fun[2] == Atom("F")
-    # рекурсия идёт через имя fun, а не через функцию модуля
+    # recursion goes through the fun name, not through a module function
     fn = _function("def m(n):\n    def f(x):\n        f(x)\n    f(n)\n", "m")
     calls = _find(fn, lambda f: f[0] == Atom("call") and f[2] == (Atom("var"), 3, Atom("F")))
-    assert calls, "нет вызова через переменную F"
+    assert calls, "no call through the variable F"
 
 
 def test_nested_def_errors():

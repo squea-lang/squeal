@@ -1,4 +1,4 @@
-"""Контракт ошибок: ошибки линта Erlang выходят как `путь:строка: текст`, без дампа."""
+"""Error contract: Erlang lint errors surface as `path:line: text`, never as a term dump."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ESCRIPT = ROOT / "squeal" / "squeal_compile.escript"
 
 def test_lint_error_is_clean():
     tmp = pathlib.Path(tempfile.mkdtemp())
-    # формы с вызовом несуществующей локальной функции — такую форму линт отвергает
+    # a form calling a missing local function — the linter rejects it
     forms = [
         (Atom("attribute"), 0, Atom("module"), Atom("t")),
         (Atom("attribute"), 0, Atom("export"), [(Atom("m"), 0)]),

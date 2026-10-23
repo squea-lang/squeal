@@ -1,4 +1,4 @@
-"""Сквозной скелет: CLI build компилирует .ee в .beam, hello:hello() → <<"hi">>."""
+"""End-to-end skeleton: the build CLI compiles .ee into .beam, hello:hello() → <<"hi">>."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Методы стандартной библиотеки (methods.md): формы, диспетчеризация, семантика."""
+"""Standard-library methods (methods.md): forms, dispatch, semantics."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _body(source: str, name: str = "m"):
 
 
 def _remote(form):
-    """Развернуть form до {remote, ...}, если это удалённый вызов."""
+    """Unwrap a form to {remote, ...} if it is a remote call."""
     return form[2] if form[0] == Atom("call") else None
 
 
@@ -72,7 +72,7 @@ def test_str_method_checks_binary_type():
         Atom("remote"), 2,
         (Atom("atom"), 2, Atom("string")), (Atom("atom"), 2, Atom("lowercase")),
     )
-    # ветка мимо проверки бросает {bad_receiver, метод, значение}
+    # the non-matching branch raises {bad_receiver, method, value}
     assert fail[2] == [(Atom("var"), 2, Atom("_squeal@r2"))]
     error = fail[4][0]
     assert error[2] == (Atom("remote"), 2,
@@ -175,7 +175,7 @@ def test_methods_semantics_in_erl():
         capture_output=True, text=True, check=True,
     )
     assert out.stdout.strip().split("|")[:-1] == [expected for _, expected in cases]
-    # неверный получатель называет метод и значение
+    # a wrong receiver names the method and the value
     assert "{bad_receiver,lower," in out.stdout.rsplit("|", 1)[-1]
 
 

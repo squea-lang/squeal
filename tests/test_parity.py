@@ -1,7 +1,7 @@
-"""Паритет с Gleam: одинаковые формы на эквивалентном коде (см. architecture.md).
+"""Parity with Gleam: identical forms for equivalent code (see architecture.md).
 
-Оракул — формы из ``_gleam_artefacts/<mod>.abstr`` (ETF), которые печатает
-``gleam build``; достаём их через ``erl -eval`` и парсим в Python.
+The oracle is the forms in ``_gleam_artefacts/<mod>.abstr`` (ETF) written by
+``gleam build``; we fetch them through ``erl -eval`` and parse them in Python.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from erl_term import parse
 GLEAM = shutil.which("gleam")
 ERL = shutil.which("erl")
 
-# Теги форм, у которых аннотация (строка) стоит вторым элементом.
+# Form tags whose annotation (a string) is the second element.
 FORM_TAGS = {
     "attribute", "function", "clause", "op", "call", "remote", "var", "tuple",
     "cons", "nil", "integer", "float", "string", "atom", "bin", "bin_element",
@@ -30,7 +30,7 @@ FORM_TAGS = {
 
 
 def gleam_forms(source: str, module: str, app: str) -> list:
-    """Компилирует .gleam-модуль и возвращает его формы из .abstr."""
+    """Compile a .gleam module and return its forms from the .abstr."""
     tmp = pathlib.Path(tempfile.mkdtemp())
     (tmp / "gleam.toml").write_text(f'name = "{app}"\nversion = "1.0.0"\n')
     src = tmp / "src"
@@ -56,7 +56,7 @@ def gleam_forms(source: str, module: str, app: str) -> list:
 
 
 def gleam_project_forms(sources: dict, module: str, app: str) -> list:
-    """Многомодульный gleam-проект; возвращает формы одного модуля."""
+    """A multi-module gleam project; returns the forms of one module."""
     tmp = pathlib.Path(tempfile.mkdtemp())
     (tmp / "gleam.toml").write_text(f'name = "{app}"\nversion = "1.0.0"\n')
     for rel, content in sources.items():
@@ -97,8 +97,8 @@ def _zero_annos(term):
 
 
 def normalize(forms: list) -> list:
-    """Выбрасываем атрибуты file/spec/type/export_type (у squeal типов нет) и
-    обнуляем аннотации строк (номера у .gleam и .ee расходятся)."""
+    """Drop the file/spec/type/export_type attributes (squeal has no types) and
+    zero out line annotations (the .gleam and .ee line numbers differ)."""
     out = []
     for form in forms:
         if isinstance(form, tuple) and len(form) >= 3 and form[0] == Atom("attribute"):
@@ -341,7 +341,7 @@ def test_parity_import():
 def assert_parity(gleam: str, squeal: str, module: str, app: str):
     expected = normalize(gleam_forms(gleam, module, app))
     actual = normalize(compile_source(squeal, f"src/{module}.ee", module))
-    assert actual == expected, f"{module}: формы squeal расходятся с Gleam"
+    assert actual == expected, f"{module}: squeal forms differ from Gleam"
 
 
 def test_parity_unary_minus():

@@ -1,5 +1,5 @@
-"""Обычные тесты этапа 2: формы и семантика конструкций без аналога в Gleam
-(//, %, **, /, ==, словарь, атом) — см. architecture.md."""
+"""Plain stage-2 tests: forms and semantics of constructs with no Gleam counterpart
+(//, %, **, /, ==, dict, atom) — see architecture.md."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def _body(source: str, name: str = "m"):
-    """Единственная функция модуля и её тело (последнее выражение clause)."""
+    """The module's only function and its body (the last expression of the clause)."""
     forms = compile_source(source, "src/m.ee", name)
     fn = [f for f in forms if f[0] == Atom("function")][0]
     return fn[4][0][4][0]
@@ -47,7 +47,7 @@ def test_dict_atom_and_string_keys():
 
     body = _body("def m():\n    {\"a\": 1}\n")
     key = body[2][0][2]
-    assert key[0] == Atom("bin")             # бинарный ключ
+    assert key[0] == Atom("bin")             # binary key
 
 
 def test_eq_form():
@@ -174,7 +174,7 @@ def test_if_form():
 def test_match_no_fallthrough():
     body = _clause_body("def f(v):\n    match v:\n        case 1:\n            r = 'a'\n        case 2:\n            r = 'b'\n    r\n")
     case = body[0][3]
-    assert len(case[3]) == 2  # без fallthrough
+    assert len(case[3]) == 2  # no fallthrough
 
 
 def test_or_pattern_expands():
@@ -195,10 +195,10 @@ def test_branch_errors():
     import pytest
     from squeal.errors import SquealError
     for source in [
-        # разные цели — только в НЕхвостовой позиции (в хвосте теперь допустимы)
+        # different targets only in a NON-tail position (tails may now differ)
         "def f(c):\n    if c:\n        a = 1\n    else:\n        b = 2\n    a\n",
         "def f(v):\n    match v:\n        case 1:\n            a = 1\n        case 2:\n            b = 2\n    a\n",
-        "def f(c):\n    if c:\n        v = 1\n",   # if без else
+        "def f(c):\n    if c:\n        v = 1\n",   # if without else
     ]:
         with pytest.raises(SquealError):
             compile_source(source, "src/m.ee", "m")
@@ -248,7 +248,7 @@ def test_error_message_has_file_and_line():
     except SquealError as e:
         assert str(e).startswith("src/m.ee:2:")
         return
-    assert False, "ожидали SquealError"
+    assert False, "expected SquealError"
 
 
 def test_cli_error_exit_code():
@@ -326,7 +326,7 @@ def _expr_form(source: str):
     return _clause_body(source)[0]
 
 
-# --- этап 6: лямбды и включения ---
+# --- stage 6: lambdas and comprehensions ---
 
 
 def test_lambda_form():
@@ -346,7 +346,7 @@ def test_lambda_two_params():
 def test_call_bound_lambda():
     body = _clause_body("def f():\n    g = lambda x: x + 1\n    g(2)\n")
     call = body[1]
-    assert call[2] == (Atom("var"), 3, Atom("G"))  # вызов переменной, не атома
+    assert call[2] == (Atom("var"), 3, Atom("G"))  # a variable call, not an atom call
 
 
 def test_listcomp_basic():
@@ -360,17 +360,17 @@ def test_listcomp_basic():
 
 def test_listcomp_expr():
     body = _expr_form("def f(l):\n    [x * 2 for x in l]\n")
-    assert body[2][2] == Atom("*")  # элемент — x * 2
+    assert body[2][2] == Atom("*")  # the element is x * 2
 
 
 def test_listcomp_filter():
     body = _expr_form("def f(l):\n    [x for x in l if x > 0]\n")
-    assert body[3][1][2] == Atom(">")  # фильтр — выражение
+    assert body[3][1][2] == Atom(">")  # the filter is an expression
 
 
 def test_listcomp_two_filters():
     body = _expr_form("def f(l, c1, c2):\n    [x for x in l if c1 if c2]\n")
-    assert len(body[3]) == 3  # generate + 2 фильтра
+    assert len(body[3]) == 3  # generate + 2 filters
 
 
 def test_listcomp_nested():
@@ -381,7 +381,7 @@ def test_listcomp_nested():
 def test_listcomp_pattern_target():
     body = _expr_form("def f(pairs):\n    [a for (a, b) in pairs]\n")
     gen = body[3][0]
-    assert gen[2][0] == Atom("tuple")  # образец {A, B}
+    assert gen[2][0] == Atom("tuple")  # the pattern is {A, B}
 
 
 def test_dictcomp_keys():
@@ -471,7 +471,7 @@ def test_filter_non_bool_skips():
         [ERL, "-noshell", "-pa", str(ebin), "-eval", 'io:format("~p~n",[f:f([1,2])]), halt().'],
         capture_output=True, text=True, check=True,
     )
-    assert out.stdout.strip() == "[]"  # фильтр 1 (не true) → пропуск, не падение
+    assert out.stdout.strip() == "[]"  # filter 1 (not true) skips instead of crashing
 
 
 def test_import_remote_form():
@@ -521,7 +521,7 @@ def test_nested_module_build():
     assert out.stdout.strip() == "42"
 
 
-# --- регрессии на исправленные баги ---
+# --- regressions for fixed bugs ---
 
 
 def test_term_float_format():
@@ -571,7 +571,7 @@ def test_nonascii_string_in_erl():
 def test_items_nonname_receiver():
     body = _expr_form("def f(g):\n    {k: v for k, v in g().items()}\n")
     gen = body[3][0]
-    assert gen[0] == Atom("generate")          # не m_generate
+    assert gen[0] == Atom("generate")          # not m_generate
     assert gen[2][0] == Atom("tuple")          # {K, V}
     assert gen[3][0] == Atom("call") and gen[3][2][2] == Atom("squeal_iter")
 
@@ -580,7 +580,7 @@ def test_bare_tuple_pattern():
     body = _clause_body(
         "def f(v):\n    match v:\n        case 1, 2:\n            r = 1\n        case _:\n            r = 0\n    r\n")
     pat = body[0][3][3][0][2][0]
-    assert pat[0] == Atom("tuple")             # не cons
+    assert pat[0] == Atom("tuple")             # not cons
 
 
 def test_constructor_arity():
@@ -604,7 +604,7 @@ def test_duplicate_class_error():
 
 
 def test_no_temp_variables():
-    # % и // больше не строят inline begin…end со временными `_squeal@N`
+    # % and // no longer build an inline begin…end with temporary `_squeal@N`
     body = _expr_form("def m(_value, y):\n    _value % y\n")
     assert body[0] == Atom("call")
     assert body[2] == (Atom("atom"), 2, Atom("squeal_mod"))
@@ -685,9 +685,9 @@ def test_pattern_assign_errors():
     import pytest
     from squeal.errors import SquealError
     with pytest.raises(SquealError):
-        compile_source("def f(v):\n    f(x) = v\n", "src/m.ee", "m")      # не класс
+        compile_source("def f(v):\n    f(x) = v\n", "src/m.ee", "m")      # not a class
     with pytest.raises(SquealError):
-        compile_source("def f(v):\n    Ok(x, y) = v\n", "src/m.ee", "m")   # арность
+        compile_source("def f(v):\n    Ok(x, y) = v\n", "src/m.ee", "m")   # arity
 
 
 def test_pattern_assign_duplicate_name_errors():
@@ -814,7 +814,7 @@ def test_decorators_in_module():
     assert "inc@impl" in names and "inc" in names and "squeal_on_load" in names
     wrapper = next(f for f in forms if f[0] == "function" and f[2] == "inc")
     text = term_to_erlang(wrapper)
-    assert "persistent_term" in text and "twice" not in text  # применён один раз, не в вызове
+    assert "persistent_term" in text and "twice" not in text  # applied once, not at the call site
 
     tmp = pathlib.Path(tempfile.mkdtemp())
     (tmp / "src").mkdir()
@@ -850,8 +850,8 @@ def test_decorator_errors():
     import pytest
     from squeal.errors import SquealError
     for src in [
-        "@(lambda f: f)\ndef g():\n    1\n",              # не имя/модуль/вызов
-        "@dec\nclass T(StartingWithAtom):\n    x: int\n",  # класс
+        "@(lambda f: f)\ndef g():\n    1\n",              # not a name/module/call
+        "@dec\nclass T(StartingWithAtom):\n    x: int\n",  # a class
     ]:
         with pytest.raises(SquealError):
             compile_source(src, "src/m.ee", "m")
@@ -891,8 +891,8 @@ def test_decorator_must_be_arity_one():
     import pytest
     from squeal.errors import SquealError
     for src in [
-        "def add(a, b):\n    a + b\n\n@add\ndef g(x):\n    x\n",  # арность 2
-        "@nope\ndef g(x):\n    x\n",                              # не существует
+        "def add(a, b):\n    a + b\n\n@add\ndef g(x):\n    x\n",  # arity 2
+        "@nope\ndef g(x):\n    x\n",                              # does not exist
     ]:
         with pytest.raises(SquealError, match="decorator"):
             compile_source(src, "src/m.ee", "m")

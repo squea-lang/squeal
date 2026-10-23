@@ -1,7 +1,7 @@
-"""Мини-парсер Erlang-термов из текста ``~p`` (для эталонных форм Gleam).
+"""A tiny parser for Erlang terms printed with ``~p`` (for the Gleam reference forms).
 
-Возвращает Python-значения: атом → ``Atom``, строка → ``str``, кортеж →
-``tuple``, список → ``list``, числа → ``int``/``float``.
+Returns Python values: atom → ``Atom``, string → ``str``, tuple → ``tuple``,
+list → ``list``, numbers → ``int``/``float``.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class _Parser:
             if c == "}":
                 self.i += 1
                 return tuple(items)
-            raise ValueError(self._err("ожидалась ',' или '}' в кортеже"))
+            raise ValueError(self._err("expected ',' or '}' in a tuple"))
 
     def _list(self):
         self.i += 1
@@ -84,7 +84,7 @@ class _Parser:
             if c == "]":
                 self.i += 1
                 return items
-            raise ValueError(self._err("ожидалась ',' или ']' в списке"))
+            raise ValueError(self._err("expected ',' or ']' in a list"))
 
     def _string(self):
         self.i += 1
@@ -128,7 +128,7 @@ class _Parser:
         if m:
             self.i = m.end()
             return Atom(m.group(0))
-        raise ValueError(self._err("не распознан терм"))
+        raise ValueError(self._err("unrecognized term"))
 
     def _err(self, what: str) -> str:
         return f"{what}: {self.t[self.i:self.i + 20]!r}"
