@@ -26,7 +26,7 @@
 | Метод | Erlang |
 |---|---|
 | `startswith(p)` | `string:prefix(S, P) =/= nomatch` |
-| `endswith(p)` | `string:suffix(S, P) =/= nomatch` |
+| `endswith(p)` | `binary:part/3` — сравнение хвоста (`string:suffix/2` в OTP нет) |
 | `lower()` | `string:lowercase/1` |
 | `upper()` | `string:uppercase/1` |
 | `strip()` | `string:trim/1` (оба края, пробелы) |
@@ -34,9 +34,8 @@
 | `rstrip()` | `string:trim(S, trailing)` |
 | `split(sep)` | `string:split(S, Sep, all)` |
 | `split()` | `string:lexemes(S, " \t\n\r\f\v")` — серии пробельных схлопываются |
-| `join(parts)` | `iolist_to_binary(lists:join(S, Parts))` |
+| `join(parts)` | хелпер `squeal_join/2`: части — только строки, иначе `{bad_argument, join, Часть}` |
 | `replace(old, new)` | `binary:replace(S, Old, New, [global])` |
-| `find(sub)` | `binary:match/2` → позиция, иначе `-1` |
 
 ## list / tuple
 

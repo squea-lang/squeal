@@ -123,3 +123,18 @@ def test_print_in_notebook():
     finally:
         nb.unload_ipython_extension(shell)
         InteractiveShell.clear_instance()
+
+
+def test_print_order_in_repl(capsys):
+    from squeal.session import Session, compile_cell
+    from squeal.repl import ErlangRepl
+
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("print(1)\nprint(2)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "nil")
+    finally:
+        repl.close()
+    # как в Python: переводы строк в конце каждой строки, а не в начале блока
+    assert capsys.readouterr().out == "1\n2\n"

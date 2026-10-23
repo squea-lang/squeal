@@ -183,3 +183,29 @@ def test_items_in_comprehension_still_works():
     body = _body("def m(d):\n    [k for k, v in d.items()]\n")
     assert body[0] == Atom("lc")
     assert body[3][0][0] == Atom("m_generate")
+
+
+def test_join_rejects_non_strings():
+    ebin = _build_join()
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p | ~p~n", [j:ok(), j:empty(), catch j:bad()]), halt().'],
+        capture_output=True, text=True, check=True,
+    )
+    assert out.stdout.startswith('<<"a,b,c">> <<>> | ')
+    assert "{bad_argument,join,1}" in out.stdout
+
+
+def _build_join() -> pathlib.Path:
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "j.ee").write_text(
+        'def ok():\n    ",".join(["a", "b", "c"])\n'
+        "def empty():\n    \",\".join([])\n"
+        "def bad():\n    \",\".join([1, 2])\n"
+    )
+    subprocess.run(
+        [sys.executable, "-m", "squeal", "build", str(tmp)],
+        cwd=ROOT, check=True, capture_output=True,
+    )
+    return tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"

@@ -13,7 +13,7 @@ from .term import Atom
 
 RESERVED_NAMES = frozenset({
     "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load", "print",
-    "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map",
+    "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map", "squeal_join",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -153,11 +153,6 @@ def _m_split1(line, v, args):
     return _remote_call(line, "string", "split", [v, args[0], (Atom("atom"), line, Atom("all"))])
 
 
-def _m_join(line, v, args):
-    return _remote_call(line, "erlang", "iolist_to_binary",
-                        [_remote_call(line, "lists", "join", [v, args[0]])])
-
-
 def _m_replace(line, v, args):
     return _remote_call(line, "binary", "replace",
                         [v, args[0], args[1], _list_expr(line, [(Atom("atom"), line, Atom("global"))])])
@@ -173,7 +168,6 @@ _STR_METHODS = {
     ("rstrip", 0): _m_rstrip,
     ("split", 0): _m_split0,
     ("split", 1): _m_split1,
-    ("join", 1): _m_join,
     ("replace", 2): _m_replace,
 }
 
@@ -186,6 +180,7 @@ class _Gen:
         self._used_mod = False
         self._used_floordiv = False
         self._used_print = False
+        self._used_join = False
         self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
@@ -277,6 +272,8 @@ class _Gen:
             forms.append(self.floordiv_helper())
         if self._used_print:
             forms.extend(self.print_helpers())
+        if self._used_join:
+            forms.append(self.join_helper())
         return forms
 
     def function_forms(self, function: ir.Function) -> list:
@@ -371,21 +368,23 @@ class _Gen:
         line = dec.line
         if isinstance(dec, ir.FunRef):
             # имя в scope (вложенная функция/переменная) — вызов через переменную;
-            # иначе в модуле это функция модуля
+            # импортированное имя — remote fun; иначе это функция модуля
             if shell or dec.name in self._scope:
                 return _var(line, self._resolve(dec.name, line))
-            return (Atom("fun"), line, (Atom("function"), Atom(dec.name), 1))
+            if dec.name in self._imports:
+                module, fname = self._imports[dec.name]
+                return self._remote_fun(line, module, fname)
+            if (dec.name, 1) in self._module_defs or (dec.name, 1) in self._later_defs:
+                return (Atom("fun"), line, (Atom("function"), Atom(dec.name), 1))
+            other = [a for (n, a) in sorted(self._module_defs) if n == dec.name]
+            if other:
+                raise SquealError(
+                    f"{line}: декоратор {dec.name} должен принимать 1 аргумент "
+                    f"(определена как {dec.name}/{other[0]})"
+                )
+            raise SquealError(f"{line}: декоратор {dec.name}/1 не определён")
         if isinstance(dec, ir.RemoteFunRef):
-            return (
-                Atom("fun"),
-                line,
-                (
-                    Atom("function"),
-                    (Atom("atom"), line, Atom(dec.module)),
-                    (Atom("atom"), line, Atom(dec.name)),
-                    1,
-                ),
-            )
+            return self._remote_fun(line, dec.module, dec.name)
         if isinstance(dec, ir.Call):
             return self.expr_form(dec)
         if isinstance(dec, ir.RemoteCall):
@@ -393,6 +392,20 @@ class _Gen:
                 line, dec.module, dec.name, [self.expr_form(a) for a in dec.args]
             )
         raise SquealError(f"{line}: декоратор не поддержан: {dec!r}")
+
+    @staticmethod
+    def _remote_fun(line: int, module: str, name: str) -> tuple:
+        """`fun mod:name/1` — арность обязана быть формой {integer, Line, N}."""
+        return (
+            Atom("fun"),
+            line,
+            (
+                Atom("function"),
+                (Atom("atom"), line, Atom(module)),
+                (Atom("atom"), line, Atom(name)),
+                (Atom("integer"), line, 1),
+            ),
+        )
 
     def decorated_def_forms(self, stmt: ir.Def) -> list:
         """Shell-режим: placeholder через process dictionary + применение декораторов."""
@@ -834,6 +847,15 @@ class _Gen:
             return self._count_form(line, recv, args[0])
 
         # str (binary): string:* принимают и chardata — проверяем is_binary
+        if name == "join" and arity == 1:
+            self._used_join = True
+            return self._as_binary(
+                line, recv, name,
+                lambda v: _remote_call(
+                    line, "erlang", "iolist_to_binary",
+                    [self._helper_call(line, "squeal_join", [v, args[0]])],
+                ),
+            )
         if name == "splitlines" and arity == 0:
             return self._as_binary(
                 line, recv, name, lambda v: self._splitlines_form(line, v)
@@ -859,6 +881,14 @@ class _Gen:
         return (Atom("case"), line, recv, [
             (Atom("clause"), line, [binder], check, [build(binder)]),
             (Atom("clause"), line, [other], [], [fail]),
+        ])
+
+    @staticmethod
+    def _bad_argument(line, name, value) -> tuple:
+        """`erlang:error({bad_argument, метод, значение})` — неверный аргумент метода."""
+        return _remote_call(line, "erlang", "error", [
+            (Atom("tuple"), line,
+             [_atom(line, "bad_argument"), _atom(line, name), value]),
         ])
 
     @staticmethod
@@ -1139,6 +1169,25 @@ class _Gen:
             ]),
         ])
         return [print_fn, str_fn, tuple_fn, map_fn]
+
+    def join_helper(self) -> tuple:
+        """squeal_join/2: iolist из частей; не-строка — {bad_argument, join, Часть}."""
+        line = 0
+        sep = _var(line, "Sep")
+        head = _var(line, "H")
+        tail = _var(line, "T")
+        one = (Atom("cons"), line, head, (Atom("nil"), line))
+        many = (Atom("cons"), line, head, tail)
+        is_bin = [[_remote_call(line, "erlang", "is_binary", [head])]]
+        return (Atom("function"), line, Atom("squeal_join"), 2, [
+            (Atom("clause"), line, [_var(line, "_"), (Atom("nil"), line)], [],
+             [(Atom("nil"), line)]),
+            (Atom("clause"), line, [sep, one], is_bin, [head]),
+            (Atom("clause"), line, [sep, many], is_bin,
+             [_list_expr(line, [head, sep, _local_call(line, "squeal_join", [sep, tail])])]),
+            (Atom("clause"), line, [_var(line, "_"), many], [],
+             [self._bad_argument(line, "join", head)]),
+        ])
 
     def _num_helper(self, name: str, line: int, int_body, float_body) -> tuple:
         a = _var(line, "A")

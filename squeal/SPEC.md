@@ -30,7 +30,8 @@ parent: squeal-architecture
   `for`/`while`/`del`/AugAssign(кроме `|=`)/присваивание по индексу-атрибуту — ошибка.
   Классы `StartingWithAtom`: конструктор `T(…)` инлайнится в кортеж `{t, …}`, образец `case T(…)` → `{t, …}`;
   `snake_case` — порт Gleam; `NativeRecord`/`Map` — ошибка; арность конструктора и класс-образца проверяется;
-  декораторы — только над функциями (`@dec`, `@mod.dec`, вызовы);
+  декораторы — только над функциями (`@dec` с учётом импортов/scope, `@mod.dec` → `fun mod:dec/1`,
+  вызовы; арность 1 проверяется статически);
   встроенные `Ok`/`Error` (прелюдия) — `{ok, …}`/`{error, …}`.
   `lambda` → IR; включения list/dict (все генераторы через `squeal_iter`, `for k, v in m.items()` → map-генератор,
   получатель `.items()` может быть любым выражением); вызов метода → `ir.Method` (имя, арность, получатель);
@@ -61,7 +62,8 @@ parent: squeal-architecture
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).
   импорт → `{call, {remote, a@b@c, f}}` (имя из scope имеет приоритет над импортом).
 - `term.py` — `Atom` и печать термов в текст для `file:consult`.
-- `squeal_compile.escript` — читает `.abstr`, зовёт `compile:forms`, печатает `.erl` через `erl_pp`.
+- `squeal_compile.escript` — читает `.abstr`, зовёт `compile:forms` (+ `return`), печатает `.erl`
+  через `erl_pp`; ошибки линта форматирует в `путь:строка: текст` (дамп терма наружу не выходит).
 - `compiler.py` — конвейер (`compile_source`, `build`); `__main__.py` — командная строка.
 - `session.py` — shell-режим: клетка → формы; session хранит маппинг имён/классы/импорты.
 - `repl.py` + `repl.escript` — persistent Erlang-REPL (`erl_eval:exprs`, bindings живут;

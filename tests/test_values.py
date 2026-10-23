@@ -855,3 +855,44 @@ def test_decorator_errors():
     ]:
         with pytest.raises(SquealError):
             compile_source(src, "src/m.ee", "m")
+
+
+def test_decorator_from_another_module():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "a.ee").write_text("def dec(f):\n    lambda x: f(x) + 1\n")
+    (src / "b.ee").write_text("from a import dec\n\n@dec\ndef g(x):\n    x * 2\n")
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval", 'io:format("~p~n", [b:g(1)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "3"
+
+
+def test_remote_decorator_without_import():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    src = tmp / "src"
+    src.mkdir()
+    (src / "a.ee").write_text("def dec(f):\n    lambda x: f(x) + 1\n")
+    (src / "zz.ee").write_text("@a.dec\ndef h(x):\n    x * 3\n")
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval", 'io:format("~p~n", [zz:h(1)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "4"
+
+
+def test_decorator_must_be_arity_one():
+    import pytest
+    from squeal.errors import SquealError
+    for src in [
+        "def add(a, b):\n    a + b\n\n@add\ndef g(x):\n    x\n",  # арность 2
+        "@nope\ndef g(x):\n    x\n",                              # не существует
+    ]:
+        with pytest.raises(SquealError, match="декоратор"):
+            compile_source(src, "src/m.ee", "m")

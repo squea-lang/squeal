@@ -13,7 +13,8 @@ main(_) ->
     B3 = erl_eval:add_binding('squeal_mod', fun squeal_mod/2, B2),
     B4 = erl_eval:add_binding('squeal_floordiv', fun squeal_floordiv/2, B3),
     B5 = erl_eval:add_binding('squeal_print', fun squeal_print/1, B4),
-    loop(B5).
+    B6 = erl_eval:add_binding('squeal_join', fun squeal_join/2, B5),
+    loop(B6).
 
 loop(Bindings) ->
     case io:get_line("") of
@@ -81,7 +82,7 @@ squeal_pow_loop(A, N, Acc) -> squeal_pow_loop(A, N - 1, Acc * A).
 
 %% print: питоновское представление значения (строки — как есть, атомы — без кавычек).
 squeal_print(X) ->
-    put(squeal_out, [squeal_str(X), $\n | case get(squeal_out) of undefined -> []; L -> L end]),
+    put(squeal_out, [$\n, squeal_str(X) | case get(squeal_out) of undefined -> []; L -> L end]),
     nil.
 
 squeal_str(B) when is_binary(B) -> B;
@@ -96,6 +97,12 @@ squeal_str(X) -> io_lib:format("~p", [X]).
 squeal_str_tuple([]) -> <<"()">>;
 squeal_str_tuple([One]) -> [$(, squeal_str(One), <<",)">>];
 squeal_str_tuple(Items) -> [$(, lists:join(<<", ">>, [squeal_str(X) || X <- Items]), $)].
+
+%% join: части — только строки, иначе {bad_argument, join, Часть} (как в модульном бэкенде).
+squeal_join(_Sep, []) -> [];
+squeal_join(_Sep, [H]) when is_binary(H) -> H;
+squeal_join(Sep, [H | T]) when is_binary(H) -> [H, Sep | squeal_join(Sep, T)];
+squeal_join(_Sep, [H | _]) -> erlang:error({bad_argument, join, H}).
 
 squeal_str_map([]) -> <<"{}">>;
 squeal_str_map(Pairs) ->

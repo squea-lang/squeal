@@ -38,10 +38,40 @@ compile_one(Forms, Base, Source) ->
             write(Base, Binary, Forms);
         {ok, _Mod, Binary, _Warnings} ->
             write(Base, Binary, Forms);
+        {error, Errors, _Warnings} ->
+            %% контракт ошибок (architecture.md): `путь:строка: текст`, без дампа
+            io:format(standard_error, "~ts", [format_errors(Source, Errors)]),
+            error;
         Other ->
-            io:format(standard_error, "compile:forms failed for ~s: ~p~n", [Source, Other]),
+            io:format(standard_error, "~ts: компиляция не удалась~n", [Source]),
+            io:format(standard_error, "~P~n", [Other, 8]),
             error
     end.
+
+format_errors(Source, [{_File, Problems} | _]) ->
+    [format_problem(Source, P) || P <- Problems];
+format_errors(Source, _) ->
+    [io_lib:format("~ts: компиляция не удалась~n", [Source])].
+
+format_problem(Source, {Location, Module, Description}) ->
+    io_lib:format("~ts:~p: ~ts~n", [Source, line_of(Location), describe(Module, Description)]).
+
+line_of({Line, _Column}) -> Line;
+line_of(Line) when is_integer(Line) -> Line;
+line_of(_) -> 1.
+
+describe(erl_lint, {undefined_function, {Name, Arity}}) ->
+    io_lib:format("функция ~ts/~p не определена", [Name, Arity]);
+describe(erl_lint, {undefined_function, {Name, Arity}, Defined}) ->
+    io_lib:format("функция ~ts/~p не определена (определены: ~p)", [Name, Arity, Defined]);
+describe(erl_lint, {unused_var, Name}) ->
+    io_lib:format("переменная ~ts не используется", [Name]);
+describe(erl_lint, {redefine_type, _}) ->
+    "повторное определение типа";
+describe(compile, {crash, Module, Kind, _Stack}) ->
+    io_lib:format("внутренняя ошибка компилятора Erlang (~p:~p) — проверьте формы", [Module, Kind]);
+describe(Module, Description) ->
+    io_lib:format("~p: ~p", [Module, Description]).
 
 write(Base, Binary, Forms) ->
     ok = file:write_file(Base ++ ".beam", Binary),
