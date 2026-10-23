@@ -54,7 +54,8 @@ parent: squeal-architecture
   `f@impl/N` + обёртка через `persistent_term` + `squeal_on_load/0` (`-on_load`);
   методы stdlib — таблица в бэкенде: `str` → `string:*`/`binary:*` под проверкой `is_binary`,
   `dict` → `maps:*`, `list`/`tuple` → `count` через `case` по `is_list`/`is_tuple` (свежие имена
-  привязок `_squeal@…`), неизвестное имя/арность — `SquealError`;
+  привязок `_squeal@…`), неверный получатель — `erlang:error({bad_receiver, Метод, Значение})`,
+  неизвестное имя/арность — `SquealError`;
   `print` → `squeal_print/1` (`io:format("~ts~n")`), хелперы `squeal_str/1`, `squeal_str_tuple/1`,
   `squeal_str_map/1` — питоновское представление значения, генерируются по требованию;
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).
