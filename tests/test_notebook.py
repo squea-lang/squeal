@@ -329,3 +329,22 @@ def test_extension_load_is_idempotent_and_unloads():
         assert counts() == (once[0] - 1, once[1] - 1, once[2] - 1)
     finally:
         InteractiveShell.clear_instance()
+
+
+def test_decorators_in_shell():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        for cell in [
+            "def plus1(fn):\n    lambda x: fn(x) + 1\n",
+            "@plus1\ndef r(n):\n    if n > 0:\n        r(n - 1)\n    else:\n        0\n",
+            "r(3)",
+            "@plus1\n@plus1\ndef z(x):\n    x\n",
+            "z(1)",
+        ]:
+            forms, _ = compile_cell(cell, s)
+            status, value = repl.eval_forms(forms)
+            if cell in ("r(3)", "z(1)"):
+                assert (status, value) in (("ok", "4"), ("ok", "3"))
+    finally:
+        repl.close()

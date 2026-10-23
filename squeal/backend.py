@@ -12,7 +12,7 @@ from .errors import SquealError
 from .term import Atom
 
 RESERVED_NAMES = frozenset({
-    "squeal_iter", "squeal_mod", "squeal_floordiv",
+    "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -99,6 +99,8 @@ class _Gen:
         self._defs: dict[tuple, Atom] = {}
         self._later_defs: set[tuple] = set()
         self._module_defs: set[tuple] = set()
+        self._module_name = "m"
+        self._decorated: list = []
 
     def _helper_call(self, line, name, args) -> tuple:
         """Вызов хелпера: в модуле — локальная функция, в REPL — связанный fun."""
@@ -147,8 +149,17 @@ class _Gen:
     def module_forms(self, module: ir.Module) -> list:
         self._imports = dict(module.imports)
         self._module_defs = {(f.name, len(f.params)) for f in module.functions}
-        forms = [
-            (Atom("attribute"), 0, Atom("module"), Atom(module.name)),
+        self._module_name = module.name
+        self._decorated = []
+        func_forms = []
+        for function in module.functions:
+            func_forms.extend(self.function_forms(function))
+        forms = [(Atom("attribute"), 0, Atom("module"), Atom(module.name))]
+        if self._decorated:
+            forms.append(
+                (Atom("attribute"), 0, Atom("on_load"), (Atom("squeal_on_load"), 0))
+            )
+        forms.extend([
             (Atom("attribute"), 0, Atom("compile"), list(COMPILE_OPTS)),
             (
                 Atom("attribute"),
@@ -158,9 +169,10 @@ class _Gen:
             ),
             (Atom("attribute"), 0, Atom("export_type"), []),
             (Atom("attribute"), 0, Atom("file"), (module.path, 0)),
-        ]
-        for function in module.functions:
-            forms.append(self.function_form(function))
+        ])
+        forms.extend(func_forms)
+        if self._decorated:
+            forms.append(self.on_load_form())
         if self._used_pow:
             forms.extend(self.pow_helpers())
         if self._used_iter:
@@ -171,7 +183,15 @@ class _Gen:
             forms.append(self.floordiv_helper())
         return forms
 
-    def function_form(self, function: ir.Function) -> tuple:
+    def function_forms(self, function: ir.Function) -> list:
+        if not function.decorators:
+            return [self._function_form(function, Atom(function.name))]
+        impl = Atom(f"{function.name}@impl")
+        impl_form = self._function_form(function, impl)
+        self._decorated.append((function, impl))
+        return [impl_form, self._decorated_module_form(function)]
+
+    def _function_form(self, function: ir.Function, name: Atom) -> tuple:
         self._scope = {}
         self._taken = {}
         self._defs = {}
@@ -187,10 +207,128 @@ class _Gen:
         return (
             Atom("function"),
             line,
-            Atom(function.name),
+            name,
             len(param_forms),
             [(Atom("clause"), line, param_forms, [], body)],
         )
+
+    @staticmethod
+    def _key_form(line: int, head: str, name: str, arity: int) -> tuple:
+        """Литерал-кортеж `{head, name, arity}` как форма-выражение."""
+        return (Atom("tuple"), line, [
+            (Atom("atom"), line, Atom(head)),
+            (Atom("atom"), line, Atom(name)),
+            (Atom("integer"), line, arity),
+        ])
+
+    def _decorator_key(self, line: int, name: str, arity: int) -> tuple:
+        return self._key_form(line, self._module_name, name, arity)
+
+    def _persistent_get(self, line: int, key: tuple) -> tuple:
+        return _remote_call(line, "persistent_term", "get", [key])
+
+    def _decorated_module_form(self, function: ir.Function) -> tuple:
+        """Обёртка: `f(A, B) -> (persistent_term:get({Mod, f, N}))(A, B).`"""
+        line = function.line
+        arity = len(function.params)
+        params = [_var(line, f"P{i}") for i in range(arity)]
+        callee = self._persistent_get(
+            line, self._decorator_key(line, function.name, arity)
+        )
+        body = (Atom("call"), line, callee, list(params))
+        return (
+            Atom("function"),
+            line,
+            Atom(function.name),
+            arity,
+            [(Atom("clause"), line, list(params), [], [body])],
+        )
+
+    def on_load_form(self) -> tuple:
+        """`squeal_on_load/0`: применяет декораторы один раз при загрузке модуля."""
+        line = 0
+        puts = []
+        for function, impl in self._decorated:
+            arity = len(function.params)
+            decorated = (Atom("fun"), line, (Atom("function"), impl, arity))
+            for dec in reversed(function.decorators):
+                decorated = (Atom("call"), line, self._decorator_value(dec, shell=False), [decorated])
+            puts.append(
+                _remote_call(
+                    line,
+                    "persistent_term",
+                    "put",
+                    [self._decorator_key(line, function.name, arity), decorated],
+                )
+            )
+        body = puts + [(Atom("atom"), line, Atom("ok"))]
+        return (
+            Atom("function"),
+            line,
+            Atom("squeal_on_load"),
+            0,
+            [(Atom("clause"), line, [], [], body)],
+        )
+
+    def _decorator_value(self, dec, shell: bool) -> tuple:
+        """Форма значения-декоратора (fun арности 1)."""
+        line = dec.line
+        if isinstance(dec, ir.FunRef):
+            if shell:
+                return _var(line, self._resolve(dec.name, line))
+            return (Atom("fun"), line, (Atom("function"), Atom(dec.name), 1))
+        if isinstance(dec, ir.RemoteFunRef):
+            return (
+                Atom("fun"),
+                line,
+                (
+                    Atom("function"),
+                    (Atom("atom"), line, Atom(dec.module)),
+                    (Atom("atom"), line, Atom(dec.name)),
+                    1,
+                ),
+            )
+        if isinstance(dec, ir.Call):
+            return self.expr_form(dec)
+        if isinstance(dec, ir.RemoteCall):
+            return _remote_call(
+                line, dec.module, dec.name, [self.expr_form(a) for a in dec.args]
+            )
+        raise SquealError(f"{line}: декоратор не поддержан: {dec!r}")
+
+    def decorated_def_forms(self, stmt: ir.Def) -> list:
+        """Shell-режим: placeholder через process dictionary + применение декораторов."""
+        line = stmt.line
+        arity = len(stmt.params)
+        name = self._bind_def(stmt.name, arity)
+        key = self._key_form(line, "squeal", stmt.name, arity)
+        get_call = _remote_call(line, "erlang", "get", [key])
+        params = [_var(line, f"P{i}") for i in range(arity)]
+        placeholder_body = (Atom("call"), line, get_call, list(params))
+        placeholder = (
+            Atom("fun"),
+            line,
+            (Atom("clauses"), [(Atom("clause"), line, list(params), [], [placeholder_body])]),
+        )
+        saved_scope = dict(self._scope)
+        saved_taken = dict(self._taken)
+        saved_defs = dict(self._defs)
+        param_forms = [_var(line, self._bind(p)) for p in stmt.params]
+        body = [self.stmt_form(s) for s in stmt.statements[:-1]]
+        body.append(self.tail_stmt_form(stmt.statements[-1]))
+        self._scope = saved_scope
+        self._taken = saved_taken
+        self._defs = saved_defs
+        raw = (
+            Atom("fun"),
+            line,
+            (Atom("clauses"), [(Atom("clause"), line, param_forms, [], body)]),
+        )
+        decorated = raw
+        for dec in reversed(stmt.decorators):
+            decorated = (Atom("call"), line, self._decorator_value(dec, shell=True), [decorated])
+        put = _remote_call(line, "erlang", "put", [key, decorated])
+        return [(Atom("match"), line, _var(line, name), placeholder), put]
 
     # --- операторы ---
 

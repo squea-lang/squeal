@@ -62,14 +62,17 @@ class Session:
                     stmts.append(stmt)
                     last_is_definition = False
 
-        forms = [self._gen.stmt_form(s) for s in stmts[:-1]]
-        if stmts:
-            forms.append(self._gen.tail_stmt_form(stmts[-1]))
+        forms = []
+        for i, stmt in enumerate(stmts):
+            if isinstance(stmt, ir.Def) and stmt.decorators:
+                forms.extend(self._gen.decorated_def_forms(stmt))
+            elif i == len(stmts) - 1:
+                forms.append(self._gen.tail_stmt_form(stmt))
+            else:
+                forms.append(self._gen.stmt_form(stmt))
         return forms, last_is_definition
 
     def _def(self, node: ast.FunctionDef, toks: dict) -> ir.Def:
-        if node.decorator_list:
-            raise SquealError(f"{node.lineno}: декораторы не поддержаны")
         if node.name in backend.RESERVED_NAMES:
             raise SquealError(
                 f"{node.lineno}: имя {node.name!r} зарезервировано компилятором"
@@ -81,11 +84,19 @@ class Session:
         body = frontend._statements(node.body, toks, self.classes)
         if not body:
             raise SquealError(f"{node.lineno}: функция {node.name} без значения")
-        return ir.Def(name=node.name, params=params, statements=body, line=node.lineno)
+        return ir.Def(
+            name=node.name,
+            params=params,
+            statements=body,
+            line=node.lineno,
+            decorators=frontend._decorators(node, toks, self.classes),
+        )
 
     def _class(self, node: ast.ClassDef, seen: set[str]) -> None:
         if node.decorator_list:
-            raise SquealError(f"{node.lineno}: декораторы не поддержаны")
+            raise SquealError(
+                f"{node.lineno}: декораторы поддержаны только над функциями"
+            )
         fields = frontend._class_fields(node)
         base = frontend._base_name(node)
         if base != "StartingWithAtom":

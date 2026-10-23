@@ -803,3 +803,55 @@ def test_params_differing_only_by_case():
          'io:format("~p~n", [nm:f(1, 2)]), halt().'],
         capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "{1,2}"
+
+
+def test_decorators_in_module():
+    from squeal.term import term_to_erlang
+    src = ("def twice(fn):\n    lambda x: fn(fn(x))\n\n"
+           "@twice\ndef inc(x):\n    x + 1\n")
+    forms = compile_source(src, "src/m.ee", "m")
+    names = [f[2] for f in forms if f[0] == "function"]
+    assert "inc@impl" in names and "inc" in names and "squeal_on_load" in names
+    wrapper = next(f for f in forms if f[0] == "function" and f[2] == "inc")
+    text = term_to_erlang(wrapper)
+    assert "persistent_term" in text and "twice" not in text  # применён один раз, не в вызове
+
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "m.ee").write_text(src)
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p~n", [m:inc(5)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "7"
+
+
+def test_decorator_chain_and_recursion_in_module():
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "r.ee").write_text(
+        "def plus1(fn):\n    lambda x: fn(x) + 1\n\n"
+        "@plus1\ndef r(n):\n    if n > 0:\n        r(n - 1)\n    else:\n        0\n\n"
+        "@plus1\n@plus1\ndef z(x):\n    x\n")
+    subprocess.run([sys.executable, "-m", "squeal", "build", str(tmp)],
+                   cwd=ROOT, check=True, capture_output=True)
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p~n", [r:r(3), r:z(1)]), halt().'],
+        capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "4 3"
+
+
+def test_decorator_errors():
+    import pytest
+    from squeal.errors import SquealError
+    for src in [
+        "@(lambda f: f)\ndef g():\n    1\n",              # не имя/модуль/вызов
+        "@dec\nclass T(StartingWithAtom):\n    x: int\n",  # класс
+    ]:
+        with pytest.raises(SquealError):
+            compile_source(src, "src/m.ee", "m")

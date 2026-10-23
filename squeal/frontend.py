@@ -111,7 +111,9 @@ def _collect_classes(tree: ast.Module) -> dict:
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             if node.decorator_list:
-                raise SquealError(f"{node.lineno}: декораторы не поддержаны")
+                raise SquealError(
+                f"{node.lineno}: декораторы поддержаны только над функциями"
+            )
             fields = _class_fields(node)
             base = _base_name(node)
             if base != "StartingWithAtom":
@@ -311,9 +313,36 @@ def _source_chars(source: str) -> _SourceChars:
     return _SourceChars(source)
 
 
+def _decorators(node: ast.FunctionDef, toks: dict, classes: dict) -> tuple:
+    return tuple(_decorator(dec, toks, classes) for dec in node.decorator_list)
+
+
+def _decorator(node: ast.AST, toks: dict, classes: dict):
+    """Выражение в позиции декоратора: `dec`, `mod.dec`, `dec(args)`, `mod.dec(args)`."""
+    if isinstance(node, ast.Name):
+        return ir.FunRef(name=node.id, line=node.lineno)
+    if isinstance(node, ast.Attribute):
+        if not isinstance(node.value, ast.Name):
+            raise SquealError(f"{node.lineno}: декоратор — только имя или модуль.функция")
+        return ir.RemoteFunRef(module=node.value.id, name=node.attr, line=node.lineno)
+    if isinstance(node, ast.Call):
+        if node.keywords:
+            raise SquealError(f"{node.lineno}: именованные аргументы декоратора не поддержаны")
+        args = tuple(_expr(a, toks, classes) for a in node.args)
+        func = node.func
+        if isinstance(func, ast.Name):
+            return ir.Call(name=func.id, args=args, line=node.lineno)
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            return ir.RemoteCall(
+                module=func.value.id, name=func.attr, args=args, line=node.lineno
+            )
+    raise SquealError(
+        f"{node.lineno}: декоратор — только имя, модуль.функция или их вызов"
+    )
+
+
 def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
-    if node.decorator_list:
-        raise SquealError(f"{node.lineno}: декораторы не поддержаны")
+    decorators = _decorators(node, toks, classes)
     a = node.args
     if a.posonlyargs or a.kwonlyargs or a.vararg or a.kwarg or a.defaults:
         raise SquealError(
@@ -323,7 +352,13 @@ def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
     statements = _statements(node.body, toks, classes)
     if not statements:
         raise SquealError(f"{node.lineno}: функция {node.name} без значения")
-    return ir.Function(name=node.name, params=params, statements=statements, line=node.lineno)
+    return ir.Function(
+        name=node.name,
+        params=params,
+        statements=statements,
+        line=node.lineno,
+        decorators=decorators,
+    )
 
 
 def _statements(body: list, toks: dict, classes: dict) -> tuple:

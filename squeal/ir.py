@@ -102,6 +102,33 @@ class Call:
 
 
 @dataclass(frozen=True)
+class FunRef:
+    """Голое имя в позиции декоратора → `fun name/1`."""
+
+    name: str
+    line: int
+
+
+@dataclass(frozen=True)
+class RemoteFunRef:
+    """`mod.name` в позиции декоратора → `fun mod:name/1`."""
+
+    module: str
+    name: str
+    line: int
+
+
+@dataclass(frozen=True)
+class RemoteCall:
+    """`mod.name(args)` — прямой вызов Erlang-модуля (декораторы)."""
+
+    module: str
+    name: str
+    args: tuple
+    line: int
+
+
+@dataclass(frozen=True)
 class Merge:
     """``m |= d`` — слияние map."""
 
@@ -165,12 +192,13 @@ class Lambda:
 
 @dataclass(frozen=True)
 class Def:
-    """`def f(x): …` в shell-режиме → именованный fun `F = fun F(X) -> … end`."""
+    """`def f(x): …` в shell-режиме → fun-значение `F`."""
 
     name: str
     params: tuple
     statements: tuple  # тело (операторы)
     line: int
+    decorators: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -270,6 +298,7 @@ class Function:
     params: tuple
     statements: tuple  # (Assign | Expr, ...)
     line: int
+    decorators: tuple = ()
 
 
 @dataclass(frozen=True)
