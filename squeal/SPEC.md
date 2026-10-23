@@ -33,7 +33,7 @@ parent: squeal-architecture
   декораторы — только над функциями (`@dec`, `@mod.dec`, вызовы);
   встроенные `Ok`/`Error` (прелюдия) — `{ok, …}`/`{error, …}`.
   `lambda` → IR; включения list/dict (все генераторы через `squeal_iter`, `for k, v in m.items()` → map-генератор,
-  получатель `.items()` может быть любым выражением); `.items()` — единственный метод;
+  получатель `.items()` может быть любым выражением); вызов метода → `ir.Method` (имя, арность, получатель);
   set comprehension и generator-выражения — ошибка. `from a.b.c import f, g as h` — импорты
   (несколько имён, псевдоним `as`); `import *` и `import X` — ошибка.
 - `ir.py` — узлы IR; отделяет бэкенд от Python AST, чтобы фронтенд можно было заменить своим парсером.
@@ -49,6 +49,9 @@ parent: squeal-architecture
   по (имя, арность); включения → `lc`/`mc`/`m_generate`;
   `squeal_iter/1` генерируется по требованию (map → ключи, список → как есть); декораторы —
   `f@impl/N` + обёртка через `persistent_term` + `squeal_on_load/0` (`-on_load`);
+  методы stdlib — таблица в бэкенде: `str` → `string:*`/`binary:*` под проверкой `is_binary`,
+  `dict` → `maps:*`, `list`/`tuple` → `count` через `case` по `is_list`/`is_tuple` (свежие имена
+  привязок `_squeal@…`), неизвестное имя/арность — `SquealError`;
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).
   импорт → `{call, {remote, a@b@c, f}}` (имя из scope имеет приоритет над импортом).
 - `term.py` — `Atom` и печать термов в текст для `file:consult`.

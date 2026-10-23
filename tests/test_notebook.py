@@ -348,3 +348,25 @@ def test_decorators_in_shell():
                 assert (status, value) in (("ok", "4"), ("ok", "3"))
     finally:
         repl.close()
+
+
+def test_repl_methods():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell('d = {"a": 1}\n', s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell('d.get("a")\n', s)
+        assert repl.eval_forms(forms) == ("ok", "1")
+        forms, _ = compile_cell('d.get("b", 0)\n', s)
+        assert repl.eval_forms(forms) == ("ok", "0")
+        forms, _ = compile_cell('d.keys()\n', s)
+        assert repl.eval_forms(forms) == ("ok", '[<<"a">>]')
+        forms, _ = compile_cell('"a,b".split(",")\n', s)
+        assert repl.eval_forms(forms) == ("ok", '[<<"a">>,<<"b">>]')
+        forms, _ = compile_cell('"  a  ".strip().upper()\n', s)
+        assert repl.eval_forms(forms) == ("ok", '<<"A">>')
+        forms, _ = compile_cell('[1,2,1].count(1)\n', s)
+        assert repl.eval_forms(forms) == ("ok", "2")
+    finally:
+        repl.close()

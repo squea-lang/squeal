@@ -47,7 +47,9 @@ erl -pa my_app/build/dev/erlang/my_app/ebin -noshell \
 - атомы — одинарные кавычки `'ok'`, строки — двойные `"..."`;
 - `if`/`else` и `match`/`case` (в условии — только bool; несматченный match — «let it crash»);
 - классы `class T(StartingWithAtom): x: int` → кортеж `{t, …}`;
-- `lambda`, list/dict comprehensions, `.items()`;
+- `lambda`, list/dict comprehensions, декораторы;
+- методы стандартной библиотеки: `d.keys()/values()/items()/get()`, `s.startswith/endswith/
+  lower/upper/strip/lstrip/rstrip/split/join/replace/splitlines`, `xs.count(x)` у списков и кортежей;
 - `==` как в Python (`1 == 1.0` → true), `// % **` — Python-семантика.
 
 Полные правила — в `goal-and-requirements.md` и `architecture.md`.

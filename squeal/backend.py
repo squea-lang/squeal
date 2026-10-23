@@ -85,6 +85,98 @@ def _pattern_names(pat) -> list:
     return []
 
 
+
+# --- методы стандартной библиотеки ---
+
+
+def _list_expr(line: int, forms: list) -> tuple:
+    """Список-литерал как выражение: cons-цепочка."""
+    out = (Atom("nil"), line)
+    for form in reversed(forms):
+        out = (Atom("cons"), line, form, out)
+    return out
+
+
+def _bin_literal(line: int, text: str) -> tuple:
+    return (
+        Atom("bin"),
+        line,
+        [(Atom("bin_element"), line, (Atom("string"), line, text), Atom("default"),
+          [Atom("utf8")])],
+    )
+
+
+def _m_startswith(line, v, args):
+    return _op(line, "=/=", _remote_call(line, "string", "prefix", [v, args[0]]),
+               (Atom("atom"), line, Atom("nomatch")))
+
+
+def _m_endswith(line, v, args):
+    # string:suffix/2 в OTP нет: точное сравнение хвоста через binary:part/3
+    def size(form):
+        return _remote_call(line, "erlang", "byte_size", [form])
+
+    tail = _remote_call(
+        line, "binary", "part",
+        [v, _op(line, "-", size(v), size(args[0])), size(args[0])],
+    )
+    return _op(line, "andalso", _op(line, ">=", size(v), size(args[0])),
+               _op(line, "=:=", tail, args[0]))
+
+
+def _m_lower(line, v, args):
+    return _remote_call(line, "string", "lowercase", [v])
+
+
+def _m_upper(line, v, args):
+    return _remote_call(line, "string", "uppercase", [v])
+
+
+def _m_strip(line, v, args):
+    return _remote_call(line, "string", "trim", [v])
+
+
+def _m_lstrip(line, v, args):
+    return _remote_call(line, "string", "trim", [v, (Atom("atom"), line, Atom("leading"))])
+
+
+def _m_rstrip(line, v, args):
+    return _remote_call(line, "string", "trim", [v, (Atom("atom"), line, Atom("trailing"))])
+
+
+def _m_split0(line, v, args):
+    return _remote_call(line, "string", "lexemes", [v, (Atom("string"), line, " \t\n\r\f\v")])
+
+
+def _m_split1(line, v, args):
+    return _remote_call(line, "string", "split", [v, args[0], (Atom("atom"), line, Atom("all"))])
+
+
+def _m_join(line, v, args):
+    return _remote_call(line, "erlang", "iolist_to_binary",
+                        [_remote_call(line, "lists", "join", [v, args[0]])])
+
+
+def _m_replace(line, v, args):
+    return _remote_call(line, "binary", "replace",
+                        [v, args[0], args[1], _list_expr(line, [(Atom("atom"), line, Atom("global"))])])
+
+
+_STR_METHODS = {
+    ("startswith", 1): _m_startswith,
+    ("endswith", 1): _m_endswith,
+    ("lower", 0): _m_lower,
+    ("upper", 0): _m_upper,
+    ("strip", 0): _m_strip,
+    ("lstrip", 0): _m_lstrip,
+    ("rstrip", 0): _m_rstrip,
+    ("split", 0): _m_split0,
+    ("split", 1): _m_split1,
+    ("join", 1): _m_join,
+    ("replace", 2): _m_replace,
+}
+
+
 class _Gen:
     def __init__(self):
         self._temp = 0
@@ -659,10 +751,8 @@ class _Gen:
             return (Atom("call"), expr.line, callee, args)
         if isinstance(expr, ir.Lambda):
             return self._lambda_form(expr)
-        if isinstance(expr, ir.Items):
-            return _remote_call(
-                expr.line, "maps", "to_list", [self.expr_form(expr.receiver)]
-            )
+        if isinstance(expr, ir.Method):
+            return self.method_form(expr)
         if isinstance(expr, ir.ListComp):
             return self._listcomp_form(expr)
         if isinstance(expr, ir.DictComp):
@@ -673,6 +763,99 @@ class _Gen:
                 [self.expr_form(expr.left), self.expr_form(expr.right)],
             )
         raise SquealError(f"нечем генерировать выражение: {expr!r}")
+
+    def method_form(self, expr: ir.Method) -> tuple:
+        """Метод stdlib: диспетчеризация по имени и типу получателя в рантайме."""
+        line = expr.line
+        name = expr.name
+        arity = len(expr.args)
+        recv = self.expr_form(expr.receiver)
+        args = [self.expr_form(a) for a in expr.args]
+
+        # dict (map)
+        if name == "items" and arity == 0:
+            return _remote_call(line, "maps", "to_list", [recv])
+        if name == "keys" and arity == 0:
+            return _remote_call(line, "maps", "keys", [recv])
+        if name == "values" and arity == 0:
+            return _remote_call(line, "maps", "values", [recv])
+        if name == "get" and arity == 1:
+            return _remote_call(line, "maps", "get", [args[0], recv, _atom(line, "nil")])
+        if name == "get" and arity == 2:
+            return _remote_call(line, "maps", "get", [args[0], recv, args[1]])
+
+        # list / tuple
+        if name == "count" and arity == 1:
+            return self._count_form(line, recv, args[0])
+
+        # str (binary): string:* принимают и chardata — проверяем is_binary
+        if name == "splitlines" and arity == 0:
+            return self._as_binary(line, recv, lambda v: self._splitlines_form(line, v))
+        build = _STR_METHODS.get((name, arity))
+        if build is not None:
+            return self._as_binary(line, recv, lambda v: build(line, v, args))
+
+        raise SquealError(
+            f"{line}: метод {name}/{arity} не поддержан (только стандартная библиотека)"
+        )
+
+    def _fresh(self, line: int, base: str) -> tuple:
+        """Свежее имя привязки (`@` — чтобы не столкнуться с пользовательским)."""
+        self._temp += 1
+        return (Atom("var"), line, Atom(f"{base}{self._temp}"))
+
+    def _as_binary(self, line, recv, build) -> tuple:
+        binder = self._fresh(line, "_squeal@m")
+        check = [[_remote_call(line, "erlang", "is_binary", [binder])]]
+        fail = _remote_call(line, "erlang", "error", [_atom(line, "badarg")])
+        return (Atom("case"), line, recv, [
+            (Atom("clause"), line, [binder], check, [build(binder)]),
+            (Atom("clause"), line, [_var(line, "_")], [], [fail]),
+        ])
+
+    def _splitlines_form(self, line, v) -> tuple:
+        """Python `splitlines`: пустая строка → [], хвостовой перевод не даёт пустого элемента."""
+        empty_bin = (Atom("bin"), line, [])
+        global_opt = _list_expr(line, [(Atom("atom"), line, Atom("global"))])
+        separators = _list_expr(
+            line, [_bin_literal(line, "\r\n"), _bin_literal(line, "\n"), _bin_literal(line, "\r")]
+        )
+        split = _remote_call(line, "binary", "split", [v, separators, global_opt])
+        parts = self._fresh(line, "_squeal@p")
+        tail = self._fresh(line, "_squeal@l")
+        drop_last = (Atom("case"), line, _remote_call(line, "lists", "last", [parts]), [
+            (Atom("clause"), line, [empty_bin], [],
+             [_remote_call(line, "lists", "droplast", [parts])]),
+            (Atom("clause"), line, [tail], [], [parts]),
+        ])
+        non_empty = (Atom("case"), line, split, [
+            (Atom("clause"), line, [parts], [], [drop_last]),
+        ])
+        return (Atom("case"), line, v, [
+            (Atom("clause"), line, [empty_bin], [], [_list_expr(line, [])]),
+            (Atom("clause"), line, [_var(line, "_")], [], [non_empty]),
+        ])
+
+    def _count_form(self, line, recv, arg) -> tuple:
+        e = self._fresh(line, "_squeal@e")
+        l = self._fresh(line, "_squeal@l")
+        t = self._fresh(line, "_squeal@t")
+
+        def count_of(source):
+            comp = (
+                Atom("lc"), line, e,
+                [(Atom("generate"), line, e, source), _op(line, "=:=", e, arg)],
+            )
+            return _remote_call(line, "erlang", "length", [comp])
+
+        return (Atom("case"), line, recv, [
+            (Atom("clause"), line, [l], [[_remote_call(line, "erlang", "is_list", [l])]],
+             [count_of(l)]),
+            (Atom("clause"), line, [t], [[_remote_call(line, "erlang", "is_tuple", [t])]],
+             [count_of(_remote_call(line, "erlang", "tuple_to_list", [t]))]),
+            (Atom("clause"), line, [_var(line, "_")], [],
+             [_remote_call(line, "erlang", "error", [_atom(line, "badarg")])]),
+        ])
 
     def _list_form(self, expr: ir.List) -> tuple:
         form = (Atom("nil"), expr.line)

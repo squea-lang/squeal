@@ -202,10 +202,12 @@ class Def:
 
 
 @dataclass(frozen=True)
-class Items:
-    """``m.items()`` — метод-whitelist (только у словаря)."""
+class Method:
+    """Вызов метода стандартной библиотеки: `recv.name(args)`."""
 
     receiver: object
+    name: str
+    args: tuple
     line: int
 
 

@@ -604,12 +604,15 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
 
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Attribute):
-            if node.func.attr != "items" or node.args or node.keywords:
+            if node.keywords:
                 raise SquealError(
-                    f"{node.lineno}: метод {node.func.attr!r} не поддержан (только .items())"
+                    f"{node.lineno}: именованные аргументы метода не поддержаны"
                 )
-            return ir.Items(
-                receiver=_expr(node.func.value, toks, classes), line=node.lineno
+            return ir.Method(
+                receiver=_expr(node.func.value, toks, classes),
+                name=node.func.attr,
+                args=tuple(_expr(a, toks, classes) for a in node.args),
+                line=node.lineno,
             )
         if isinstance(node.func, ast.Name) and node.func.id in classes:
             if node.keywords:
