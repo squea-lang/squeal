@@ -4,6 +4,15 @@ Gleam-подобный язык для BEAM (виртуальной машины
 Исходники — файлы `.ee`; компилятор генерирует Erlang Abstract Format и `.beam` так же,
 как Gleam 1.19.
 
+## Установка
+
+```
+pip install squealang      # на PyPI имя свободного «squeal» занято другим пакетом
+```
+
+Пакет требует Python 3.15 и Erlang/OTP с `escript` в `PATH`. После установки доступны
+`squeal build DIR` и `python -m squeal build DIR`.
+
 ## Быстрый старт
 
 Проект — каталог с деревом `src/`:

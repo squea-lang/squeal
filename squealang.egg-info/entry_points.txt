@@ -1,0 +1,2 @@
+[console_scripts]
+squeal = squeal.__main__:main
