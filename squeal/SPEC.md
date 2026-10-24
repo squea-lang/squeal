@@ -62,9 +62,10 @@ parent: squeal-architecture
   привязок `_squeal@…`), неверный получатель — `erlang:error({bad_receiver, Метод, Значение})`,
   неизвестное имя/арность — `SquealError`;
   вызов имени, не найденного нигде, но входящего в `BUILTINS` → встроенная форма
-  (`print` — ровно 1 аргумент, `zip` — 2, `enumerate` — 1 или 2, иначе `SquealError`);
+  (`print` — ровно 1 аргумент, `zip` — 2, `enumerate` — 1 или 2, `range` — 1–3, иначе `SquealError`);
   `zip`/`enumerate` → хелперы `squeal_zip/2`, `squeal_enumerate/2` (списки только,
-  не-список — `{bad_argument, Имя, V}`), генерируются по требованию;
+  не-список — `{bad_argument, Имя, V}`), `range` → `squeal_range/3` (start, stop, step; целые,
+  питоновская семантика) — генерируются по требованию;
   `print` → `squeal_print/1` (`io:format("~ts~n")`), хелперы `squeal_str/1`, `squeal_str_tuple/1`,
   `squeal_str_map/1` — питоновское представление значения, генерируются по требованию;
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).

@@ -133,6 +133,12 @@ parent: squeal-goal-and-requirements
   `for` при этом перебирает словарь по ключам — расхождение осознанное. Хелперы `squeal_zip/2`,
   `squeal_enumerate/2` генерируются по требованию; имена функций и хелперов зарезервированы.
   В шапке включений — обычные генераторы: `for i, x in enumerate(xs)`, `for a, b in zip(xs, ys)`.
+- `range(stop)`, `range(start, stop)`, `range(start, stop, step)` — питоновская семантика, неленивая:
+  возвращает список `[start, start+step, …]` без `stop`. Только целые: не число — `{bad_argument, range, V}`;
+  `step == 0` — `{bad_argument, range, 0}` (как ValueError в Python). Хелпер `squeal_range/3`
+  (start, stop, step) рекурсивный: `lists:seq` не годится — он падает на «пустых» диапазонах
+  (`lists:seq(5, 0, 1)`, `lists:seq(1, 9, -1)`), где Python даёт `[]`. В шапке включений работает
+  как обычный генератор: `for i in range(10)`.
 - В модуле печать — сгенерированные по требованию хелперы `squeal_print/1` и `squeal_str/1`
   (+ `squeal_str_tuple/1`, `squeal_str_map/1`); имена зарезервированы. В ноутбуке напечатанное
   отдаётся до значения клетки, а значение `nil` не печатается (как `None` в IPython).

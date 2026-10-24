@@ -16,7 +16,8 @@ main(_) ->
     B6 = erl_eval:add_binding('squeal_join', fun squeal_join/2, B5),
     B7 = erl_eval:add_binding('squeal_zip', fun squeal_zip/2, B6),
     B8 = erl_eval:add_binding('squeal_enumerate', fun squeal_enumerate/2, B7),
-    loop(B8).
+    B9 = erl_eval:add_binding('squeal_range', fun squeal_range/3, B8),
+    loop(B9).
 
 loop(Bindings) ->
     case io:get_line("") of
@@ -110,6 +111,15 @@ squeal_enumerate(Start, List) when is_integer(Start), is_list(List) ->
 squeal_enumerate(Start, _) when not is_integer(Start) ->
     erlang:error({bad_argument, enumerate, Start});
 squeal_enumerate(_, List) -> erlang:error({bad_argument, enumerate, List}).
+
+%% range: питоновская семантика (стоп не включается), пустые диапазоны — [].
+squeal_range(Start, _, _) when not is_integer(Start) -> erlang:error({bad_argument, range, Start});
+squeal_range(_, Stop, _) when not is_integer(Stop) -> erlang:error({bad_argument, range, Stop});
+squeal_range(_, _, Step) when not is_integer(Step) -> erlang:error({bad_argument, range, Step});
+squeal_range(_, _, 0) -> erlang:error({bad_argument, range, 0});
+squeal_range(Start, Stop, Step) when Step > 0, Start >= Stop -> [];
+squeal_range(Start, Stop, Step) when Step < 0, Start =< Stop -> [];
+squeal_range(Start, Stop, Step) -> [Start | squeal_range(Start + Step, Stop, Step)].
 
 %% join: части — только строки, иначе {bad_argument, join, Часть} (как в модульном бэкенде).
 squeal_join(_Sep, []) -> [];

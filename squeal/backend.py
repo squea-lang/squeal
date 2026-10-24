@@ -12,12 +12,12 @@ from .errors import SquealError
 from .term import Atom
 
 # Встроенные функции: доступны, пока пользователь не определил имя сам.
-BUILTINS = frozenset({"print", "zip", "enumerate"})
+BUILTINS = frozenset({"print", "zip", "enumerate", "range"})
 
 RESERVED_NAMES = frozenset({
     "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load",
     "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map", "squeal_join",
-    "squeal_zip", "squeal_enumerate",
+    "squeal_zip", "squeal_enumerate", "squeal_range",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -187,6 +187,7 @@ class _Gen:
         self._used_join = False
         self._used_zip = False
         self._used_enumerate = False
+        self._used_range = False
         self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
@@ -284,6 +285,8 @@ class _Gen:
             forms.append(self.zip_helper())
         if self._used_enumerate:
             forms.append(self.enumerate_helper())
+        if self._used_range:
+            forms.append(self.range_helper())
         return forms
 
     def function_forms(self, function: ir.Function) -> list:
@@ -865,6 +868,16 @@ class _Gen:
             self._used_enumerate = True
             start = args[1] if arity == 2 else _int(line, 0)
             return self._helper_call(line, "squeal_enumerate", [start, args[0]])
+        if name == "range":
+            if not 1 <= arity <= 3:
+                raise SquealError(
+                    f"{line}: range takes one to three arguments, got {arity}"
+                )
+            self._used_range = True
+            start = args[0] if arity >= 2 else _int(line, 0)
+            stop = args[1] if arity >= 2 else args[0]
+            step = args[2] if arity == 3 else _int(line, 1)
+            return self._helper_call(line, "squeal_range", [start, stop, step])
         raise SquealError(f"{line}: unknown builtin {name}")
 
     def method_form(self, expr: ir.Method) -> tuple:
@@ -1262,6 +1275,41 @@ class _Gen:
              [self._bad_argument(line, "enumerate", start)]),
             (Atom("clause"), line, [start, items], [],
              [self._bad_argument(line, "enumerate", items)]),
+        ])
+
+    def range_helper(self) -> tuple:
+        """squeal_range/3: питоновский range (стоп не включается, шаг любой, пустые — [])."""
+        line = 0
+        start, stop, step = (
+            _var(line, "Start"), _var(line, "Stop"), _var(line, "Step")
+        )
+        is_int = lambda v: _remote_call(line, "erlang", "is_integer", [v])  # noqa: E731
+        not_int = lambda v: (Atom("op"), line, Atom("not"), is_int(v))  # noqa: E731
+        greater = lambda x, y: _op(line, ">", x, y)  # noqa: E731
+        ge = lambda x, y: _op(line, ">=", x, y)  # noqa: E731
+        le = lambda x, y: _op(line, "=<", x, y)  # Erlang пишет =< , not <=
+        less = lambda x, y: _op(line, "<", x, y)  # noqa: E731
+        zero = _int(line, 0)
+        recurse = _local_call(
+            line, "squeal_range",
+            [_op(line, "+", start, step), stop, step],
+        )
+        return (Atom("function"), line, Atom("squeal_range"), 3, [
+            (Atom("clause"), line, [start, stop, step], [[not_int(start)]],
+             [self._bad_argument(line, "range", start)]),
+            (Atom("clause"), line, [start, stop, step], [[not_int(stop)]],
+             [self._bad_argument(line, "range", stop)]),
+            (Atom("clause"), line, [start, stop, step], [[not_int(step)]],
+             [self._bad_argument(line, "range", step)]),
+            (Atom("clause"), line, [start, stop, step], [[_op(line, "=:=", step, zero)]],
+             [self._bad_argument(line, "range", zero)]),
+            # пустые диапазоны: шаг «в другую сторону» — как в Python
+            (Atom("clause"), line, [start, stop, step],
+             [[greater(step, zero), ge(start, stop)]], [(Atom("nil"), line)]),
+            (Atom("clause"), line, [start, stop, step],
+             [[less(step, zero), le(start, stop)]], [(Atom("nil"), line)]),
+            (Atom("clause"), line, [start, stop, step], [],
+             [(Atom("cons"), line, start, recurse)]),
         ])
 
     def _num_helper(self, name: str, line: int, int_body, float_body) -> tuple:
