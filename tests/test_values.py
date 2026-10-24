@@ -1,5 +1,5 @@
 """Plain stage-2 tests: forms and semantics of constructs with no Gleam counterpart
-(//, %, **, /, ==, dict, atom) — see architecture.md."""
+(//, %, **, /, ==, dict, atom) — see specs/architecture.md."""
 
 from __future__ import annotations
 

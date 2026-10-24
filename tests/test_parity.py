@@ -1,4 +1,4 @@
-"""Parity with Gleam: identical forms for equivalent code (see architecture.md).
+"""Parity with Gleam: identical forms for equivalent code (see specs/architecture.md).
 
 The oracle is the forms in ``_gleam_artefacts/<mod>.abstr`` (ETF) written by
 ``gleam build``; we fetch them through ``erl -eval`` and parse them in Python.

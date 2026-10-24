@@ -1,4 +1,4 @@
-"""Проверки: семантика, которой нет в синтаксисе (см. architecture.md)."""
+"""Проверки: семантика, которой нет в синтаксисе (см. specs/architecture.md)."""
 
 from __future__ import annotations
 

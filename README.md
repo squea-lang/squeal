@@ -66,7 +66,7 @@ erl -pa my_app/build/dev/erlang/my_app/ebin -noshell \
   lower/upper/strip/lstrip/rstrip/split/join/replace/splitlines`, `xs.count(x)` у списков и кортежей;
 - `==` как в Python (`1 == 1.0` → true), `// % **` — Python-семантика.
 
-Полные правила — в `goal-and-requirements.md` и `architecture.md`.
+Полные правила — в `specs/goal-and-requirements.md` и `specs/architecture.md`.
 
 ## Разработка
 

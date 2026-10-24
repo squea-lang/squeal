@@ -1,4 +1,4 @@
-"""Standard-library methods (methods.md): forms, dispatch, semantics."""
+"""Standard-library methods (specs/methods.md): forms, dispatch, semantics."""
 
 from __future__ import annotations
 
