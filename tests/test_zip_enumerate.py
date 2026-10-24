@@ -63,10 +63,29 @@ def test_arity_errors():
         "def m():\n    enumerate()\n",
         "def m(a, b, c):\n    enumerate(a, b, c)\n",
         "def m(a, b):\n    zip(a, b=b)\n",
-        "def zip(a, b):\n    a\n",
     ]:
         with pytest.raises(SquealError):
             compile_source(source, "src/m.ee", "m")
+
+
+def test_zip_can_be_shadowed():
+    src = "def zip(a, b):\n    a\n\ndef m(xs, ys):\n    zip(xs, ys)\n"
+    names = _function_names(src)
+    assert Atom("squeal_zip") not in names  # встроенная не подключается
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "m.ee").write_text(src)
+    subprocess.run(
+        [sys.executable, "-m", "squeal", "build", str(tmp)],
+        cwd=ROOT, check=True, capture_output=True,
+    )
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p~n", [m:m([1], [2])]), halt().'],
+        capture_output=True, text=True, check=True,
+    )
+    assert out.stdout.strip() == "[1]"
 
 
 def test_semantics_in_erl():
@@ -123,5 +142,11 @@ def test_shell_mode():
             assert repl.eval_forms(forms) == ("ok", expected)
         forms, _ = compile_cell('enumerate({"a": 2})\n', s)
         assert repl.eval_forms(forms)[0] == "error"
+
+        # переопределение встроенной: действует по имени в следующих клетках
+        forms, _ = compile_cell("def zip(a, b):\n    a\n", s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell("zip([7], [8])\n", s)
+        assert repl.eval_forms(forms) == ("ok", "[7]")
     finally:
         repl.close()

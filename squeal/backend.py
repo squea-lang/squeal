@@ -11,10 +11,13 @@ from . import ir
 from .errors import SquealError
 from .term import Atom
 
+# Встроенные функции: доступны, пока пользователь не определил имя сам.
+BUILTINS = frozenset({"print", "zip", "enumerate"})
+
 RESERVED_NAMES = frozenset({
-    "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load", "print",
+    "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load",
     "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map", "squeal_join",
-    "zip", "enumerate", "squeal_zip", "squeal_enumerate",
+    "squeal_zip", "squeal_enumerate",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -794,6 +797,8 @@ class _Gen:
                      (Atom("atom"), 0, Atom(module)), (Atom("atom"), 0, Atom(fname))),
                     args,
                 )
+            elif self._is_builtin_name(expr.name):
+                return self._builtin_form(expr, args)
             elif self._shell_mode:
                 hint = ""
                 if key in self._later_defs:
@@ -802,8 +807,13 @@ class _Gen:
                     f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined{hint}"
                 )
             elif key not in self._module_defs:
+                have = sorted(a for (nm, a) in self._module_defs if nm == expr.name)
+                hint = (
+                    " (have: " + ", ".join(f"{expr.name}/{a}" for a in have) + ")"
+                    if have else ""
+                )
                 raise SquealError(
-                    f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined"
+                    f"{expr.line}: function {expr.name}/{len(expr.args)} is not defined{hint}"
                 )
             else:
                 callee = (Atom("atom"), expr.line, Atom(expr.name))
@@ -813,27 +823,6 @@ class _Gen:
         if isinstance(expr, ir.Method):
             return self.method_form(expr)
 
-        if isinstance(expr, ir.Zip):
-            self._used_zip = True
-            return self._helper_call(
-                expr.line, "squeal_zip",
-                [self.expr_form(expr.left), self.expr_form(expr.right)],
-            )
-
-        if isinstance(expr, ir.Enumerate):
-            self._used_enumerate = True
-            start = (
-                _int(expr.line, 0) if expr.start is None else self.expr_form(expr.start)
-            )
-            return self._helper_call(
-                expr.line, "squeal_enumerate", [start, self.expr_form(expr.value)]
-            )
-
-        if isinstance(expr, ir.Print):
-            self._used_print = True
-            return self._helper_call(
-                expr.line, "squeal_print", [self.expr_form(expr.value)]
-            )
         if isinstance(expr, ir.ListComp):
             return self._listcomp_form(expr)
         if isinstance(expr, ir.DictComp):
@@ -844,6 +833,39 @@ class _Gen:
                 [self.expr_form(expr.left), self.expr_form(expr.right)],
             )
         raise SquealError(f"cannot generate an expression for: {expr!r}")
+
+    # --- встроенные функции (переопределяемые по имени) ---
+
+    def _is_builtin_name(self, name: str) -> bool:
+        """Встроенное имя свободно: его не перекрывает ни определение, ни scope, ни импорт."""
+        if name in self._scope or name in self._imports:
+            return False
+        defined = {k[0] for k in self._defs} | {k[0] for k in self._module_defs}
+        return name in BUILTINS and name not in defined
+
+    def _builtin_form(self, expr: ir.Call, args: list) -> tuple:
+        line, name, arity = expr.line, expr.name, len(args)
+        if name == "print":
+            if arity != 1:
+                raise SquealError(
+                    f"{line}: print takes exactly one argument, got {arity}"
+                )
+            self._used_print = True
+            return self._helper_call(line, "squeal_print", args)
+        if name == "zip":
+            if arity != 2:
+                raise SquealError(f"{line}: zip takes exactly two lists, got {arity}")
+            self._used_zip = True
+            return self._helper_call(line, "squeal_zip", args)
+        if name == "enumerate":
+            if arity not in (1, 2):
+                raise SquealError(
+                    f"{line}: enumerate takes one or two arguments, got {arity}"
+                )
+            self._used_enumerate = True
+            start = args[1] if arity == 2 else _int(line, 0)
+            return self._helper_call(line, "squeal_enumerate", [start, args[0]])
+        raise SquealError(f"{line}: unknown builtin {name}")
 
     def method_form(self, expr: ir.Method) -> tuple:
         """Метод stdlib: диспетчеризация по имени и типу получателя в рантайме."""

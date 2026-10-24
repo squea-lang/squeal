@@ -71,12 +71,19 @@ def test_nested_def_is_named_fun():
 
 def test_nested_def_errors():
     for source in [
-        "def m():\n    def print(x):\n        x\n",
         "def m():\n    def f(x=1):\n        x\n",
         "def m():\n    def f(*args):\n        args\n",
     ]:
         with pytest.raises(SquealError):
             compile_source(source, "src/m.ee", "m")
+
+
+def test_nested_def_shadows_builtin():
+    src = "def m(v):\n    def print(x):\n        x + 1\n    print(v)\n"
+    names = [f[2] for f in compile_source(src, "src/m.ee", "m") if f[0] == Atom("function")]
+    assert Atom("squeal_print") not in names
+    ebin = _build(src)
+    assert _run(ebin, 'io:format("~p", [n:m(1)])') == "2"
 
 
 def test_module_semantics():

@@ -213,32 +213,6 @@ class NestedDef:
 
 
 @dataclass(frozen=True)
-class Zip:
-    """``zip(a, b)`` — пары до конца короткого списка."""
-
-    left: object
-    right: object
-    line: int
-
-
-@dataclass(frozen=True)
-class Enumerate:
-    """``enumerate(xs)`` / ``enumerate(xs, start)`` — пары ``(номер, элемент)``."""
-
-    value: object
-    start: object | None
-    line: int
-
-
-@dataclass(frozen=True)
-class Print:
-    """``print(x)`` — встроенная печать в stdout, возвращает nil."""
-
-    value: object
-    line: int
-
-
-@dataclass(frozen=True)
 class Method:
     """Вызов метода стандартной библиотеки: `recv.name(args)`."""
 

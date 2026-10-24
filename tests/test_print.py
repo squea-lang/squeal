@@ -51,7 +51,6 @@ def test_print_errors():
         "def m():\n    print()\n",
         "def m(a, b):\n    print(a, b)\n",
         "def m(a):\n    print(a, sep=',')\n",
-        "def print(x):\n    x\n",
     ]:
         with pytest.raises(SquealError):
             compile_source(source, "src/m.ee", "m")
@@ -98,6 +97,26 @@ def test_print_representation_in_erl():
         "hi\n|42\n|1.5\n|-0.25\n|[1, a, s]\n|(1, 2)\n|(1,)\n|()\n|"
         "{a: 1, b: 2}\n|{}\n|true\nnil\nok\n|[[1], {k: (2,)}]\n|hi\n7"
     )
+
+
+def test_print_can_be_shadowed():
+    src = "def print(x):\n    x * 2\n\ndef m(v):\n    print(v)\n"
+    names = _function_names(src)
+    assert Atom("squeal_print") not in names  # встроенная не подключается
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "m.ee").write_text(src)
+    subprocess.run(
+        [sys.executable, "-m", "squeal", "build", str(tmp)],
+        cwd=ROOT, check=True, capture_output=True,
+    )
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p~n", [m:m(21)]), halt().'],
+        capture_output=True, text=True, check=True,
+    )
+    assert out.stdout.strip() == "42"
 
 
 def test_print_in_notebook():
