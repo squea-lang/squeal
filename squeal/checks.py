@@ -13,10 +13,13 @@ def check(module: Module) -> None:
     seen = set()
     for function in module.functions:
         if function.name in RESERVED_NAMES:
-            raise SquealError(f"name {function.name!r} is reserved by the compiler")
+            raise SquealError(
+                f"{function.line}: name {function.name!r} is reserved by the compiler"
+            )
         key = (function.name, len(function.params))
         if key in seen:
             raise SquealError(
-                f"duplicate definition of function {function.name}/{len(function.params)}"
+                f"{function.line}: duplicate definition of function "
+                f"{function.name}/{len(function.params)}"
             )
         seen.add(key)

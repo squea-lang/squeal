@@ -33,3 +33,14 @@ def test_lint_error_is_clean():
     )
     assert run.returncode != 0
     assert run.stderr.strip() == "src/t.ee:3: function nope/0 is not defined"
+
+
+def test_reserved_name_reports_the_line(tmp_path=None):
+    import pytest
+    from squeal.compiler import compile_source
+    from squeal.errors import SquealError
+
+    with pytest.raises(SquealError, match=r"^src/m\.ee:4: name 'squeal_iter'"):
+        compile_source("def ok(x):\n    x\n\ndef squeal_iter(x):\n    x\n", "src/m.ee", "m")
+    with pytest.raises(SquealError, match=r"^src/m\.ee:4: duplicate definition of function f/1"):
+        compile_source("def f(x):\n    x\n\ndef f(x):\n    x\n", "src/m.ee", "m")
