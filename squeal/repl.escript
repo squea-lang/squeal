@@ -14,7 +14,9 @@ main(_) ->
     B4 = erl_eval:add_binding('squeal_floordiv', fun squeal_floordiv/2, B3),
     B5 = erl_eval:add_binding('squeal_print', fun squeal_print/1, B4),
     B6 = erl_eval:add_binding('squeal_join', fun squeal_join/2, B5),
-    loop(B6).
+    B7 = erl_eval:add_binding('squeal_zip', fun squeal_zip/2, B6),
+    B8 = erl_eval:add_binding('squeal_enumerate', fun squeal_enumerate/2, B7),
+    loop(B8).
 
 loop(Bindings) ->
     case io:get_line("") of
@@ -97,6 +99,17 @@ squeal_str(X) -> io_lib:format("~p", [X]).
 squeal_str_tuple([]) -> <<"()">>;
 squeal_str_tuple([One]) -> [$(, squeal_str(One), <<",)">>];
 squeal_str_tuple(Items) -> [$(, lists:join(<<", ">>, [squeal_str(X) || X <- Items]), $)].
+
+%% zip: два списка, обрезка по короткому (как Python); enumerate: пары (N, X) с Start.
+squeal_zip(A, B) when is_list(A), is_list(B) -> lists:zip(A, B, trim);
+squeal_zip(A, _) when not is_list(A) -> erlang:error({bad_argument, zip, A});
+squeal_zip(_, B) -> erlang:error({bad_argument, zip, B}).
+
+squeal_enumerate(Start, List) when is_integer(Start), is_list(List) ->
+    lists:enumerate(Start, List);
+squeal_enumerate(Start, _) when not is_integer(Start) ->
+    erlang:error({bad_argument, enumerate, Start});
+squeal_enumerate(_, List) -> erlang:error({bad_argument, enumerate, List}).
 
 %% join: части — только строки, иначе {bad_argument, join, Часть} (как в модульном бэкенде).
 squeal_join(_Sep, []) -> [];

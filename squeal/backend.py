@@ -14,6 +14,7 @@ from .term import Atom
 RESERVED_NAMES = frozenset({
     "squeal_iter", "squeal_mod", "squeal_floordiv", "squeal_on_load", "print",
     "squeal_print", "squeal_str", "squeal_str_tuple", "squeal_str_map", "squeal_join",
+    "zip", "enumerate", "squeal_zip", "squeal_enumerate",
     "_squeal_pow", "_squeal_pow_loop",
 })
 
@@ -181,6 +182,8 @@ class _Gen:
         self._used_floordiv = False
         self._used_print = False
         self._used_join = False
+        self._used_zip = False
+        self._used_enumerate = False
         self._shell_mode = False
         self._imports: dict[str, tuple] = {}
         self._scope: dict[str, Atom] = {}
@@ -274,6 +277,10 @@ class _Gen:
             forms.extend(self.print_helpers())
         if self._used_join:
             forms.append(self.join_helper())
+        if self._used_zip:
+            forms.append(self.zip_helper())
+        if self._used_enumerate:
+            forms.append(self.enumerate_helper())
         return forms
 
     def function_forms(self, function: ir.Function) -> list:
@@ -806,6 +813,22 @@ class _Gen:
         if isinstance(expr, ir.Method):
             return self.method_form(expr)
 
+        if isinstance(expr, ir.Zip):
+            self._used_zip = True
+            return self._helper_call(
+                expr.line, "squeal_zip",
+                [self.expr_form(expr.left), self.expr_form(expr.right)],
+            )
+
+        if isinstance(expr, ir.Enumerate):
+            self._used_enumerate = True
+            start = (
+                _int(expr.line, 0) if expr.start is None else self.expr_form(expr.start)
+            )
+            return self._helper_call(
+                expr.line, "squeal_enumerate", [start, self.expr_form(expr.value)]
+            )
+
         if isinstance(expr, ir.Print):
             self._used_print = True
             return self._helper_call(
@@ -1187,6 +1210,36 @@ class _Gen:
              [_list_expr(line, [head, sep, _local_call(line, "squeal_join", [sep, tail])])]),
             (Atom("clause"), line, [_var(line, "_"), many], [],
              [self._bad_argument(line, "join", head)]),
+        ])
+
+    def zip_helper(self) -> tuple:
+        """squeal_zip/2: списки только, обрезка по короткому (Python), иначе bad_argument."""
+        line = 0
+        a, b = _var(line, "A"), _var(line, "B")
+        is_list = lambda v: _remote_call(line, "erlang", "is_list", [v])  # noqa: E731
+        not_list = lambda v: (Atom("op"), line, Atom("not"), is_list(v))  # noqa: E731
+        trim = (Atom("atom"), line, Atom("trim"))
+        return (Atom("function"), line, Atom("squeal_zip"), 2, [
+            (Atom("clause"), line, [a, b], [[is_list(a), is_list(b)]],
+             [_remote_call(line, "lists", "zip", [a, b, trim])]),
+            (Atom("clause"), line, [a, b], [[not_list(a)]],
+             [self._bad_argument(line, "zip", a)]),
+            (Atom("clause"), line, [a, b], [], [self._bad_argument(line, "zip", b)]),
+        ])
+
+    def enumerate_helper(self) -> tuple:
+        """squeal_enumerate/2: (Start, List) → [{N, X}]; только список."""
+        line = 0
+        start, items = _var(line, "Start"), _var(line, "List")
+        is_int = lambda v: _remote_call(line, "erlang", "is_integer", [v])  # noqa: E731
+        is_list = lambda v: _remote_call(line, "erlang", "is_list", [v])  # noqa: E731
+        return (Atom("function"), line, Atom("squeal_enumerate"), 2, [
+            (Atom("clause"), line, [start, items], [[is_int(start), is_list(items)]],
+             [_remote_call(line, "lists", "enumerate", [start, items])]),
+            (Atom("clause"), line, [start, items], [[(Atom("op"), line, Atom("not"), is_int(start))]],
+             [self._bad_argument(line, "enumerate", start)]),
+            (Atom("clause"), line, [start, items], [],
+             [self._bad_argument(line, "enumerate", items)]),
         ])
 
     def _num_helper(self, name: str, line: int, int_body, float_body) -> tuple:

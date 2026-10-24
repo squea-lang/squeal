@@ -37,7 +37,8 @@ parent: squeal-architecture
   встроенные `Ok`/`Error` (прелюдия) — `{ok, …}`/`{error, …}`.
   `lambda` → IR; включения list/dict (все генераторы через `squeal_iter`, `for k, v in m.items()` → map-генератор,
   получатель `.items()` может быть любым выражением); вызов метода → `ir.Method` (имя, арность, получатель);
-  `print(x)` → `ir.Print` (ровно один аргумент, без именованных); `def` в теле функции → `ir.NestedDef`;
+  `print(x)` → `ir.Print` (ровно один аргумент); `zip(a, b)` → `ir.Zip`, `enumerate(xs[, start])` →
+  `ir.Enumerate` (арности проверяются); `def` в теле функции → `ir.NestedDef`;
   set comprehension и generator-выражения — ошибка. `from a.b.c import f, g as h` — импорты
   (несколько имён, псевдоним `as`); `import *` и `import X` — ошибка.
 - `ir.py` — узлы IR; отделяет бэкенд от Python AST, чтобы фронтенд можно было заменить своим парсером.
@@ -59,6 +60,8 @@ parent: squeal-architecture
   `dict` → `maps:*`, `list`/`tuple` → `count` через `case` по `is_list`/`is_tuple` (свежие имена
   привязок `_squeal@…`), неверный получатель — `erlang:error({bad_receiver, Метод, Значение})`,
   неизвестное имя/арность — `SquealError`;
+  `zip`/`enumerate` → хелперы `squeal_zip/2`, `squeal_enumerate/2` (списки только,
+  не-список — `{bad_argument, Имя, V}`), генерируются по требованию;
   `print` → `squeal_print/1` (`io:format("~ts~n")`), хелперы `squeal_str/1`, `squeal_str_tuple/1`,
   `squeal_str_map/1` — питоновское представление значения, генерируются по требованию;
   `term.py` печатает Erlang-float (`1e-5` → `1.0e-5`) и строки (`\x{HEX}` для не-ASCII/управляющих).

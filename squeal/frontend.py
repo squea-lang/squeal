@@ -361,6 +361,27 @@ def _function(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.Function:
     )
 
 
+def _builtin_call(node: ast.Call, toks: dict, classes: dict):
+    """`zip(a, b)` и `enumerate(xs[, start])` — встроенные функции стандартной библиотеки."""
+    name = node.func.id
+    if node.keywords:
+        raise SquealError(f"{node.lineno}: {name} takes positional arguments only")
+    args = [_expr(a, toks, classes) for a in node.args]
+    if name == "zip":
+        if len(args) != 2:
+            raise SquealError(
+                f"{node.lineno}: zip takes exactly two lists, got {len(args)}"
+            )
+        return ir.Zip(left=args[0], right=args[1], line=node.lineno)
+    if len(args) not in (1, 2):
+        raise SquealError(
+            f"{node.lineno}: enumerate takes one or two arguments, got {len(args)}"
+        )
+    return ir.Enumerate(
+        value=args[0], start=args[1] if len(args) == 2 else None, line=node.lineno
+    )
+
+
 def _nested_def(node: ast.FunctionDef, toks: dict, classes: dict) -> ir.NestedDef:
     """`def` в теле функции: замыкание-значение, а не функция модуля."""
     a = node.args
@@ -635,6 +656,8 @@ def _expr(node: ast.AST, toks: dict, classes: dict) -> object:
                 args=tuple(_expr(a, toks, classes) for a in node.args),
                 line=node.lineno,
             )
+        if isinstance(node.func, ast.Name) and node.func.id in ("zip", "enumerate"):
+            return _builtin_call(node, toks, classes)
         if isinstance(node.func, ast.Name) and node.func.id == "print":
             if node.keywords:
                 raise SquealError(

@@ -49,6 +49,8 @@ erl -pa my_app/build/dev/erlang/my_app/ebin -noshell \
 - классы `class T(StartingWithAtom): x: int` → кортеж `{t, …}`;
 - `lambda`, list/dict comprehensions, декораторы;
 - `print(x)` — печать в stdout (питоновское представление значений), возвращает `nil`;
+- `zip(a, b)` — пары до конца короткого списка, `enumerate(xs[, start])` — пары `(номер, значение)`;
+  оба неленивые и принимают только списки;
 - методы стандартной библиотеки: `d.keys()/values()/items()/get()`, `s.startswith/endswith/
   lower/upper/strip/lstrip/rstrip/split/join/replace/splitlines`, `xs.count(x)` у списков и кортежей;
 - `==` как в Python (`1 == 1.0` → true), `// % **` — Python-семантика.
