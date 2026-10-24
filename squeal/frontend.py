@@ -108,6 +108,7 @@ def _collect_imports(tree: ast.Module) -> dict:
 def _collect_classes(tree: ast.Module) -> dict:
     classes = dict(BUILTIN_CLASSES)
     tags = {snake_case(name): name for name in BUILTIN_CLASSES}
+    builtin_names = set(BUILTIN_CLASSES)  # их можно переопределить своим class
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             if node.decorator_list:
@@ -121,7 +122,7 @@ def _collect_classes(tree: ast.Module) -> dict:
                     f"{node.lineno}: base class {base!r} is not supported — only "
                     "StartingWithAtom (NativeRecord/Map come later)"
                 )
-            if node.name in classes:
+            if node.name in classes and node.name not in builtin_names:
                 raise SquealError(f"{node.lineno}: duplicate definition of class {node.name}")
             tag = snake_case(node.name)
             if tag in tags and tags[tag] != node.name:
@@ -130,6 +131,7 @@ def _collect_classes(tree: ast.Module) -> dict:
                 )
             tags[tag] = node.name
             classes[node.name] = fields
+            builtin_names.discard(node.name)  # дальше это уже пользовательский класс
     return classes
 
 

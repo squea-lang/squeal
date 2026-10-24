@@ -370,3 +370,17 @@ def test_repl_methods():
         assert repl.eval_forms(forms) == ("ok", "2")
     finally:
         repl.close()
+
+
+def test_builtin_result_classes_can_be_redefined_in_shell():
+    s = Session()
+    repl = ErlangRepl()
+    try:
+        forms, _ = compile_cell("Ok(1)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "{ok,1}")
+        forms, _ = compile_cell("class Ok(StartingWithAtom):\n    a: int\n    b: int\n", s)
+        repl.eval_forms(forms)
+        forms, _ = compile_cell("Ok(1, 2)\n", s)
+        assert repl.eval_forms(forms) == ("ok", "{ok,1,2}")
+    finally:
+        repl.close()

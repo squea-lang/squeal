@@ -300,6 +300,41 @@ def test_class_base_errors():
             compile_source(source, "src/m.ee", "m")
 
 
+def test_builtin_result_classes_can_be_redefined():
+    import pytest
+    from squeal.errors import SquealError
+
+    src = (
+        "class Ok(StartingWithAtom):\n    value: int\n    code: int\n\n"
+        "def make(x):\n    Ok(x, 7)\n\n"
+        "def total(v):\n    match v:\n        case Ok(a, b):\n            r = a + b\n    r\n"
+    )
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    (tmp / "src").mkdir()
+    (tmp / "src" / "m.ee").write_text(src)
+    subprocess.run(
+        [sys.executable, "-m", "squeal", "build", str(tmp)],
+        cwd=ROOT, check=True, capture_output=True,
+    )
+    ebin = tmp / "build" / "dev" / "erlang" / tmp.name / "ebin"
+    out = subprocess.run(
+        [ERL, "-noshell", "-pa", str(ebin), "-eval",
+         'io:format("~p ~p~n", [m:make(1), m:total(m:make(1))]), halt().'],
+        capture_output=True, text=True, check=True,
+    )
+    assert out.stdout.strip() == "{ok,1,7} 8"
+
+    # без переопределения работает прелюдия
+    assert compile_source("def f():\n    Ok(1)\n", "src/m.ee", "m")
+    # повторное определение пользовательского класса — по-прежнему ошибка
+    with pytest.raises(SquealError, match="duplicate definition of class Ok"):
+        compile_source(
+            "class Ok(StartingWithAtom):\n    a: int\n\n"
+            "class Ok(StartingWithAtom):\n    a: int\n",
+            "src/m.ee", "m",
+        )
+
+
 def test_class_semantics_in_erl():
     tmp = pathlib.Path(tempfile.mkdtemp())
     src = tmp / "src"
