@@ -1,3 +1,0 @@
-[submodule "gleam"]
-	path = gleam
-	url = https://github.com/gleam-lang/gleam.git
